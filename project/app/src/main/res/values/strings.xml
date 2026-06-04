@@ -139,6 +139,15 @@ To allow this, please enable Location in the device settings."</string>
     <string name="play_services_not_available">"Google Play Services are not available"</string>
     <string name="play_services_now_available">"Google Play Services are now available"</string>
     <string name="play_services_update_required">"Google Play Services update is required"</string>
+    <string name="preferencesActivityOnFootLocatorDisplacement">"On-foot displacement"</string>
+    <string name="preferencesActivityOnFootLocatorDisplacementDialog">"Minimum distance moved between locations while walking or running (metres)"</string>
+    <string name="preferencesActivityOnFootLocatorDisplacementSummary">"Minimum distance between locations while on foot"</string>
+    <string name="preferencesActivityOnFootLocatorInterval">"On-foot location interval"</string>
+    <string name="preferencesActivityOnFootLocatorIntervalDialog">"How often locations are requested while walking or running (seconds)"</string>
+    <string name="preferencesActivityOnFootLocatorIntervalSummary">"Location interval while on foot"</string>
+    <string name="preferencesActivityRevertDelay">"Activity revert delay"</string>
+    <string name="preferencesActivityRevertDelayDialog">"How many seconds you must be stationary before monitoring reverts out of Move mode (seconds)"</string>
+    <string name="preferencesActivityRevertDelaySummary">"Seconds to stay in Move mode after you stop moving before reverting"</string>
     <string name="preferencesAdvanced">"Advanced"</string>
     <string name="preferencesAdvancedAutostartWarning">"This version of Android restricts OwnTracks from receiving locations when automatically started on device boot until the app is opened."</string>
     <string name="preferencesAdvancedOpencagePrivacy"><a href="%s">OpenCage Privacy Policy</a></string>
@@ -146,6 +155,13 @@ To allow this, please enable Location in the device settings."</string>
     <string name="preferencesAdvancedOpencagePrivacyDialogTitle">OpenCage Privacy Policy</string>
     <string name="preferencesAdvancedOpencagePrivacyDialogAccept">Accept</string>
     <string name="preferencesAdvancedOpencagePrivacyDialogCancel">Cancel</string>
+    <string name="preferencesAutoMonitoringByActivity">"Adapt monitoring to activity"</string>
+    <string name="preferencesAutoMonitoringByActivityPermissionDenied">"Physical activity permission is required for activity-based monitoring"</string>
+    <string name="preferencesAutoMonitoringByActivityPreciseSettingsButton">"App settings"</string>
+    <string name="preferencesAutoMonitoringByActivityPreciseSettingsMessage">"Precise location cannot be requested again from here. Open the app settings to switch location from Approximate to Precise."</string>
+    <string name="preferencesAutoMonitoringByActivityPreciseSettingsTitle">"Precise location off"</string>
+    <string name="preferencesAutoMonitoringByActivityPreciseWarning">"Activity boosting needs Precise location, but location is currently set to Approximate. Tap to grant Precise location for high-accuracy tracking while walking."</string>
+    <string name="preferencesAutoMonitoringByActivitySummary">"Boost location accuracy and frequency while walking or running, then return to your normal settings when you stop. Requires the physical activity permission."</string>
     <string name="preferencesAutostart">"Autostart"</string>
     <string name="preferencesAutostartSummary">"Automatically start on device boot"</string>
     <string name="preferencesBrokerPassword">"Password"</string>

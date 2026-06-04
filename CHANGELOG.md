@@ -2,6 +2,10 @@
 
 ## Version 2.5.10
 
+### New features
+
+- Activity-triggered adaptive monitoring (opt-in): when enabled, OwnTracks uses Google Play Services Activity Recognition to detect when you're on foot (walking/running) and temporarily boosts the locator to high accuracy with a denser interval and displacement, reverting to your normal locator settings once you become stationary. This captures walks and hikes in detail without leaving the battery-hungry Move mode on permanently, and it backs off automatically if you change the monitoring mode yourself. The on-foot interval, displacement, and revert delay are configurable under Settings → Advanced → Locator. Requires the Physical Activity permission and Precise location, and is only available in the Google Play Services build (#877).
+
 ### Bug fixes
 
 - Fix blocking file I/O on the main thread when loading a configuration from a content:// URI, which could cause ANR on slow storage (#2151). Also fixes potentially truncated reads and an uncaught IOException in that path.

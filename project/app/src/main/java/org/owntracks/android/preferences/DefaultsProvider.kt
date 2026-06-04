@@ -14,6 +14,10 @@ interface DefaultsProvider {
   @Suppress("IMPLICIT_CAST_TO_ANY", "UNCHECKED_CAST")
   fun <T> getDefaultValue(preferences: Preferences, property: KProperty<*>): T {
     return when (property) {
+      Preferences::activityOnFootLocatorDisplacement -> 30
+      Preferences::activityOnFootLocatorInterval -> 25
+      Preferences::activityRevertDelaySeconds -> 180
+      Preferences::autoMonitoringByActivity -> false
       Preferences::autostartOnBoot -> true
       Preferences::cleanSession -> false
       Preferences::clientId ->
@@ -38,6 +42,7 @@ interface DefaultsProvider {
       Preferences::ignoreStaleLocations -> 0f
       Preferences::info -> true
       Preferences::keepalive -> 3600
+      Preferences::locatorBoostedByActivity -> false
       Preferences::locatorDisplacement -> 500
       Preferences::locatorInterval -> 60
       Preferences::locatorPriority -> null

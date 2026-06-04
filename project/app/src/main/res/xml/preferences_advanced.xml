@@ -55,6 +55,44 @@
             app:key="pegLocatorFastestIntervalToInterval"
             app:summary="@string/preferencesPegLocatorFastestIntervalToIntervalSummary"
             app:title="@string/preferencesPegLocatorFastestIntervalToInterval" />
+        <androidx.preference.SwitchPreferenceCompat
+            app:iconSpaceReserved="false"
+            app:key="autoMonitoringByActivity"
+            app:summary="@string/preferencesAutoMonitoringByActivitySummary"
+            app:title="@string/preferencesAutoMonitoringByActivity" />
+        <Preference
+            android:icon="@drawable/ic_outline_info_24"
+            app:iconSpaceReserved="true"
+            app:isPreferenceVisible="false"
+            app:key="autoMonitoringByActivityPreciseWarning"
+            app:summary="@string/preferencesAutoMonitoringByActivityPreciseWarning" />
+        <org.owntracks.android.support.widgets.EditIntegerPreference
+            android:digits="0123456789"
+            android:inputType="number"
+            app:dependency="autoMonitoringByActivity"
+            app:dialogMessage="@string/preferencesActivityOnFootLocatorIntervalDialog"
+            app:iconSpaceReserved="false"
+            app:key="activityOnFootLocatorInterval"
+            app:summary="@string/preferencesActivityOnFootLocatorIntervalSummary"
+            app:title="@string/preferencesActivityOnFootLocatorInterval" />
+        <org.owntracks.android.support.widgets.EditIntegerPreference
+            android:digits="0123456789"
+            android:inputType="number"
+            app:dependency="autoMonitoringByActivity"
+            app:dialogMessage="@string/preferencesActivityOnFootLocatorDisplacementDialog"
+            app:iconSpaceReserved="false"
+            app:key="activityOnFootLocatorDisplacement"
+            app:summary="@string/preferencesActivityOnFootLocatorDisplacementSummary"
+            app:title="@string/preferencesActivityOnFootLocatorDisplacement" />
+        <org.owntracks.android.support.widgets.EditIntegerPreference
+            android:digits="0123456789"
+            android:inputType="number"
+            app:dependency="autoMonitoringByActivity"
+            app:dialogMessage="@string/preferencesActivityRevertDelayDialog"
+            app:iconSpaceReserved="false"
+            app:key="activityRevertDelaySeconds"
+            app:summary="@string/preferencesActivityRevertDelaySummary"
+            app:title="@string/preferencesActivityRevertDelay" />
     </androidx.preference.PreferenceCategory>
     <androidx.preference.PreferenceCategory
         app:iconSpaceReserved="false"

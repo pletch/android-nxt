@@ -29,6 +29,18 @@ open class OSSRequirementsChecker @Inject constructor(open val context: Context)
         true
       }
 
+  override fun hasPreciseLocationPermission(): Boolean =
+      ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+          PackageManager.PERMISSION_GRANTED
+
+  override fun hasActivityRecognitionPermission(): Boolean =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACTIVITY_RECOGNITION) ==
+            PackageManager.PERMISSION_GRANTED
+      } else {
+        true
+      }
+
   override fun isLocationServiceEnabled(): Boolean =
       (context.getSystemService(Context.LOCATION_SERVICE) as LocationManager?)?.run {
         LocationManagerCompat.isLocationEnabled(this)

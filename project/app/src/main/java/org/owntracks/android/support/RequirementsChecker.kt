@@ -5,6 +5,11 @@ interface RequirementsChecker {
 
   fun hasBackgroundLocationPermission(): Boolean
 
+  /** Whether Precise (fine) location is granted, as opposed to Approximate (coarse) only. */
+  fun hasPreciseLocationPermission(): Boolean
+
+  fun hasActivityRecognitionPermission(): Boolean
+
   fun isLocationServiceEnabled(): Boolean
 
   fun isPlayServicesCheckPassed(): Boolean

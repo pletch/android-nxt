@@ -56,13 +56,13 @@ import org.owntracks.android.data.repos.LocationRepo
 import org.owntracks.android.data.waypoints.WaypointsRepo
 import org.owntracks.android.di.CoroutineScopes
 import org.owntracks.android.geocoding.GeocoderProvider
+import org.owntracks.android.location.ActivityRecognitionClient
 import org.owntracks.android.location.LatLng
 import org.owntracks.android.location.LocationAvailability
 import org.owntracks.android.location.LocationCallback
 import org.owntracks.android.location.LocationProviderClient
 import org.owntracks.android.location.LocationRequest
 import org.owntracks.android.location.LocationResult
-import org.owntracks.android.location.LocatorPriority
 import org.owntracks.android.location.geofencing.Geofence
 import org.owntracks.android.location.geofencing.GeofencingClient
 import org.owntracks.android.location.geofencing.GeofencingEvent
@@ -74,7 +74,6 @@ import org.owntracks.android.model.messages.MessageTransition
 import org.owntracks.android.preferences.Preferences
 import org.owntracks.android.preferences.Preferences.Companion.PREFERENCES_THAT_WIPE_QUEUE_AND_CONTACTS
 import org.owntracks.android.preferences.types.ConnectionMode
-import org.owntracks.android.preferences.types.MonitoringMode
 import org.owntracks.android.preferences.types.MonitoringMode.Companion.getByValue
 import org.owntracks.android.services.worker.Scheduler
 import org.owntracks.android.support.DateFormatter.formatDate
@@ -112,6 +111,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
   @Inject lateinit var geofencingClient: GeofencingClient
 
+  @Inject lateinit var activityRecognitionClient: ActivityRecognitionClient
+
   @Inject lateinit var locationProviderClient: LocationProviderClient
 
   @Inject lateinit var requirementsChecker: RequirementsChecker
@@ -145,6 +146,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   // Significant motion sensor for triggering location requests when device movement is detected
   private lateinit var significantMotionSensor: SignificantMotionSensor
 
+  // Decision engine for activity-triggered adaptive monitoring (opt-in autoMonitoringByActivity)
+  private lateinit var activityMonitoringModeController: ActivityMonitoringModeController
+
   @EntryPoint
   @InstallIn(SingletonComponent::class)
   internal interface ServiceEntrypoint {
@@ -172,6 +176,13 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     }
 
     super.onCreate()
+
+    // Created before the pref listener is registered so it can't miss a monitoring change.
+    activityMonitoringModeController =
+        ActivityMonitoringModeController(preferences, lifecycleScope) {
+          requirementsChecker.hasPreciseLocationPermission()
+        }
+    activityMonitoringModeController.onServiceStart()
 
     preferences.registerOnPreferenceChangedListener(this)
 
@@ -248,6 +259,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     stopForeground(STOP_FOREGROUND_REMOVE)
     unregisterReceiver(powerBroadcastReceiver)
     significantMotionSensor.cancel()
+    if (requirementsChecker.hasActivityRecognitionPermission()) {
+      activityRecognitionClient.removeActivityUpdates()
+    }
     preferences.unregisterOnPreferenceChangedListener(this)
     messageProcessor.stopSendingMessages()
     super.onDestroy()
@@ -284,6 +298,17 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         // This comes from the [GeofencingBroadcastReceiver]
         INTENT_ACTION_SEND_EVENT_CIRCULAR -> {
           lifecycleScope.launch { onGeofencingEvent(fromIntent(intent)) }
+          return
+        }
+        // This comes from the gms ActivityRecognitionReceiver
+        INTENT_ACTION_ACTIVITY_TRANSITION -> {
+          if (preferences.autoMonitoringByActivity) {
+            intent.getBooleanArrayExtra(EXTRA_ACTIVITY_ON_FOOT_FLAGS)?.forEach { onFoot ->
+              activityMonitoringModeController.onActivityChange(
+                  if (onFoot) DetectedActivityChange.ON_FOOT
+                  else DetectedActivityChange.NOT_ON_FOOT)
+            }
+          }
           return
         }
 
@@ -366,7 +391,25 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     setupLocationRequest()
     scheduler.scheduleLocationPing()
     significantMotionSensor.setup()
+    setupActivityRecognition()
     messageProcessor.initialize()
+  }
+
+  /** Registers/deregisters activity-transition updates per the opt-in preference and permission. */
+  private fun setupActivityRecognition() {
+    if (!requirementsChecker.hasActivityRecognitionPermission()) {
+      if (preferences.autoMonitoringByActivity) {
+        Timber.i(
+            "Activity-based adaptive monitoring is enabled but the ACTIVITY_RECOGNITION permission is not granted")
+      }
+      return
+    }
+    if (preferences.autoMonitoringByActivity) {
+      Timber.d("Activity-based adaptive monitoring enabled; requesting activity transition updates")
+      activityRecognitionClient.requestActivityUpdates()
+    } else {
+      activityRecognitionClient.removeActivityUpdates()
+    }
   }
 
   private fun exit() {
@@ -530,29 +573,19 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   private fun setupLocationRequest(): Result<Unit> {
     Timber.v("setupLocationRequest")
     if (requirementsChecker.hasLocationPermissions()) {
-      val monitoring = preferences.monitoring
-      var interval: Duration? = null
-      var smallestDisplacement: Float? = null
-      val priority: LocatorPriority
-      when (monitoring) {
-        MonitoringMode.Quiet,
-        MonitoringMode.Manual -> {
-          interval = Duration.ofSeconds(preferences.locatorInterval.toLong())
-          smallestDisplacement = preferences.locatorDisplacement.toFloat()
-          priority = preferences.locatorPriority ?: LocatorPriority.LowPower
-        }
-
-        MonitoringMode.Significant -> {
-          interval = Duration.ofSeconds(preferences.locatorInterval.toLong())
-          smallestDisplacement = preferences.locatorDisplacement.toFloat()
-          priority = preferences.locatorPriority ?: LocatorPriority.BalancedPowerAccuracy
-        }
-
-        MonitoringMode.Move -> {
-          interval = Duration.ofSeconds(preferences.moveModeLocatorInterval.toLong())
-          priority = preferences.locatorPriority ?: LocatorPriority.HighAccuracy
-        }
-      }
+      val settings =
+          effectiveLocatorSettings(
+              preferences.monitoring,
+              preferences.locatorPriority,
+              preferences.locatorInterval,
+              preferences.locatorDisplacement,
+              preferences.moveModeLocatorInterval,
+              preferences.locatorBoostedByActivity,
+              preferences.activityOnFootLocatorInterval,
+              preferences.activityOnFootLocatorDisplacement)
+      val interval = Duration.ofSeconds(settings.intervalSeconds.toLong())
+      val smallestDisplacement = settings.smallestDisplacement?.toFloat()
+      val priority = settings.priority
       val fastestInterval =
           if (preferences.pegLocatorFastestIntervalToInterval) {
             interval
@@ -629,7 +662,10 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             Preferences::moveModeLocatorInterval.name,
             Preferences::pegLocatorFastestIntervalToInterval.name,
             Preferences::notificationHigherPriority.name,
-            Preferences::locatorPriority.name)
+            Preferences::locatorPriority.name,
+            Preferences::locatorBoostedByActivity.name,
+            Preferences::activityOnFootLocatorInterval.name,
+            Preferences::activityOnFootLocatorDisplacement.name)
     if (propertiesWeCareAbout
         .stream()
         .filter { o: String -> properties.contains(o) }
@@ -641,6 +677,13 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     if (properties.contains("monitoring")) {
       setupLocationRequest()
       ongoingNotification.setMonitoringMode(preferences.monitoring)
+      activityMonitoringModeController.onMonitoringModeChangedExternally(preferences.monitoring)
+    }
+    if (properties.contains(Preferences::autoMonitoringByActivity.name)) {
+      setupActivityRecognition()
+      if (!preferences.autoMonitoringByActivity) {
+        activityMonitoringModeController.onFeatureDisabled()
+      }
     }
     if (properties.intersect(PREFERENCES_THAT_WIPE_QUEUE_AND_CONTACTS).isNotEmpty()) {
       lifecycleScope.launch { contactsRepo.clearAll() }
@@ -693,6 +736,10 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     // NEW ACTIONS ALSO HAVE TO BE ADDED TO THE SERVICE INTENT FILTER
     const val INTENT_ACTION_SEND_LOCATION_USER = "org.owntracks.android.SEND_LOCATION_USER"
     const val INTENT_ACTION_SEND_EVENT_CIRCULAR = "org.owntracks.android.SEND_EVENT_CIRCULAR"
+    const val INTENT_ACTION_ACTIVITY_TRANSITION = "org.owntracks.android.ACTIVITY_TRANSITION"
+    // BooleanArray extra on INTENT_ACTION_ACTIVITY_TRANSITION: one flag per detected transition,
+    // true = entered an on-foot activity, false = entered still/in-vehicle.
+    const val EXTRA_ACTIVITY_ON_FOOT_FLAGS = "activityOnFootFlags"
     private const val INTENT_ACTION_CLEAR_NOTIFICATIONS =
         "org.owntracks.android.CLEAR_EVENT_NOTIFICATIONS"
     private const val INTENT_ACTION_CLEAR_CONTACTS = "org.owntracks.android.CLEAR_CONTACTS"

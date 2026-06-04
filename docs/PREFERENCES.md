@@ -237,6 +237,30 @@ These settings apply only when using HTTP mode (`mode=3`).
 - **MQTT**: ✓ | **HTTP**: ✓
 - **Description**: When enabled, sets the fastest location update interval equal to the standard interval. Prevents the system from delivering location updates faster than desired.
 
+### `autoMonitoringByActivity`
+- **Type**: Boolean
+- **Default**: `false`
+- **MQTT**: ✓ | **HTTP**: ✓
+- **Description**: Opt-in activity-triggered adaptive monitoring. When enabled, the app uses Google Play Services Activity Recognition to detect on-foot activity (walking/running) and temporarily boosts the locator to high accuracy with a denser interval/displacement, reverting to the configured locator settings once stationary. The boost is a runtime override and does not modify the stored locator preferences. Only effective in the Google Play Services (gms) build, and requires the `ACTIVITY_RECOGNITION` permission and Precise (fine) location; the boost is skipped if Precise location is not granted. The monitoring mode itself is not changed. See [Activity-Triggered Adaptive Monitoring](ACTIVITY_MONITORING.md).
+
+### `activityOnFootLocatorInterval`
+- **Type**: Integer (seconds)
+- **Default**: `25`
+- **MQTT**: ✓ | **HTTP**: ✓
+- **Description**: The `locatorInterval` applied while on-foot activity is detected and `autoMonitoringByActivity` is enabled. Has no effect unless the feature is enabled.
+
+### `activityOnFootLocatorDisplacement`
+- **Type**: Integer (meters)
+- **Default**: `30`
+- **MQTT**: ✓ | **HTTP**: ✓
+- **Description**: The `locatorDisplacement` applied while on-foot activity is detected and `autoMonitoringByActivity` is enabled. Has no effect unless the feature is enabled.
+
+### `activityRevertDelaySeconds`
+- **Type**: Integer (seconds)
+- **Default**: `180`
+- **MQTT**: ✓ | **HTTP**: ✓
+- **Description**: How long a sustained still / in-vehicle period must persist before the on-foot locator boost is reverted (the slow-out hysteresis). A renewed on-foot detection before this elapses cancels the revert. Has no effect unless `autoMonitoringByActivity` is enabled.
+
 ### `ignoreInaccurateLocations`
 - **Type**: Integer (meters)
 - **Default**: `0` (disabled)

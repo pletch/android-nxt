@@ -191,6 +191,18 @@ constructor(
   }
 
   /* Persisted preferences */
+  // On-foot locator boost values for activity-triggered monitoring; see [autoMonitoringByActivity].
+  @Preference var activityOnFootLocatorDisplacement: Int by preferencesStore
+
+  @Preference var activityOnFootLocatorInterval: Int by preferencesStore
+
+  // Seconds of sustained "still" before the on-foot boost reverts (slow-out hysteresis).
+  @Preference var activityRevertDelaySeconds: Int by preferencesStore
+
+  // Opt-in: boost the locator to high accuracy while on foot, then revert when stationary. Runtime
+  // override (see effectiveLocatorSettings), so stored prefs are unchanged. gms-only.
+  @Preference var autoMonitoringByActivity: Boolean by preferencesStore
+
   @Preference var autostartOnBoot: Boolean by preferencesStore
 
   @Preference(exportModeHttp = false) var cleanSession: Boolean by preferencesStore
@@ -316,6 +328,10 @@ constructor(
   // Preferences we store but don't export / import
   var firstStart: Boolean by preferencesStore
   var setupCompleted: Boolean by preferencesStore
+
+  // Runtime flag set while the activity boost is active (read by effectiveLocatorSettings); cleared
+  // on service start so a process death mid-walk can't leave the locator boosted.
+  var locatorBoostedByActivity: Boolean by preferencesStore
 
   // Needs to be after all the preferences are declared, otherwise the delegates are null.
   init {
