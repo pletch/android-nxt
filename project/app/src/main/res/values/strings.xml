@@ -45,6 +45,14 @@
     <string name="contactDetailsDistanceValue">"%1$,.2f %2$s"</string>
     <string name="contactDetailsSpeed">"Speed"</string>
     <string name="contactDetailsSpeedValue">"%d kph"</string>
+    <string name="unitsSpeedMetric">"%d km/h"</string>
+    <string name="unitsSpeedImperial">"%d mph"</string>
+    <string name="unitsLengthMetric">"%,d m"</string>
+    <string name="unitsLengthImperial">"%,d ft"</string>
+    <string name="unitsDistanceMeters">"%.0f m"</string>
+    <string name="unitsDistanceKilometers">"%.2f km"</string>
+    <string name="unitsDistanceFeet">"%.0f ft"</string>
+    <string name="unitsDistanceMiles">"%.2f mi"</string>
     <string name="contactDetailsTopic">"Identifier"</string>
     <string name="contactDetailsTrackerId">"Tracker ID"</string>
     <string name="contactLocationUnknown">"No location is available"</string>
@@ -219,6 +227,10 @@ To allow this, please enable Location in the device settings."</string>
     <string name="preferencesLocatorIntervalDialog">"How often should locations be requested from the device (seconds)"</string>
     <string name="preferencesLocatorIntervalSummary">"Interval between location updates"</string>
     <string name="preferencesMap">"Map"</string>
+    <string name="preferencesUnits">"Units of measure"</string>
+    <string name="preferencesUnitsDefault">"Automatic (locale)"</string>
+    <string name="preferencesUnitsMetric">"Metric (km/h, m)"</string>
+    <string name="preferencesUnitsImperial">"Imperial (mph, ft)"</string>
     <string name="preferencesMoveModeLocatorInterval">"Location interval (Move mode)"</string>
     <string name="preferencesMoveModeLocatorIntervalDialog">"How often should locations be requested from the device whilst in Move mode (seconds)"</string>
     <string name="preferencesMoveModeLocatorIntervalSummary">"Interval between location updates in Move mode"</string>

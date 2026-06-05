@@ -9,6 +9,7 @@ import org.owntracks.android.preferences.types.MonitoringMode
 import org.owntracks.android.preferences.types.MqttProtocolLevel
 import org.owntracks.android.preferences.types.MqttQos
 import org.owntracks.android.preferences.types.StringMaxTwoAlphaNumericChars
+import org.owntracks.android.preferences.types.UnitOfMeasure
 
 interface DefaultsProvider {
   @Suppress("IMPLICIT_CAST_TO_ANY", "UNCHECKED_CAST")
@@ -77,6 +78,7 @@ interface DefaultsProvider {
       Preferences::tlsClientCrt -> ""
       Preferences::tid ->
           StringMaxTwoAlphaNumericChars(preferences.deviceId.takeLast(2).ifEmpty { "na" })
+      Preferences::units -> UnitOfMeasure.Default
       Preferences::url -> ""
       Preferences::userDeclinedEnableLocationPermissions -> false
       Preferences::userDeclinedEnableBackgroundLocationPermissions -> false
