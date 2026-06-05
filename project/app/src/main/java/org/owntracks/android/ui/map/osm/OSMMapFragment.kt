@@ -305,8 +305,13 @@ internal constructor(
         to be attached to a non-destroyed activity somehow, so we check before creating the marker
          */
 
+        // Insert contact markers just beneath the my-location overlay so the blue dot stays on
+        // top, falling back to the end of the list when it isn't present. (The previous
+        // filterIsInstance(...).indexOfFirst returned -1 with no location overlay, and
+        // overlays.add(-1, …) throws, silently halting further marker updates.)
+        val myLocationIndex = overlays.indexOfFirst { it is MyLocationNewOverlay }
         overlays.add(
-            overlays.filterIsInstance<MyLocationNewOverlay>().indexOfFirst { true },
+            if (myLocationIndex >= 0) myLocationIndex else overlays.size,
             Marker(this).apply {
               this.id = id
               position = latLng.toGeoPoint()
