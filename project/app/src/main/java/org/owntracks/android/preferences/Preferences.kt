@@ -203,6 +203,10 @@ constructor(
   // override (see effectiveLocatorSettings), so stored prefs are unchanged. gms-only.
   @Preference var autoMonitoringByActivity: Boolean by preferencesStore
 
+  // When activity monitoring is on, also boost while driving with a speed-tiered interval (see
+  // DrivingSpeedTier). On by default; depends on autoMonitoringByActivity. gms-only.
+  @Preference var boostLocatorWhileDriving: Boolean by preferencesStore
+
   @Preference var autostartOnBoot: Boolean by preferencesStore
 
   @Preference(exportModeHttp = false) var cleanSession: Boolean by preferencesStore
@@ -332,6 +336,10 @@ constructor(
   // Runtime flag set while the activity boost is active (read by effectiveLocatorSettings); cleared
   // on service start so a process death mid-walk can't leave the locator boosted.
   var locatorBoostedByActivity: Boolean by preferencesStore
+
+  // Runtime flag: driving locator boost is active (speed-tiered interval). Cleared on service
+  // start.
+  var locatorBoostedByDriving: Boolean by preferencesStore
 
   // Needs to be after all the preferences are declared, otherwise the delegates are null.
   init {

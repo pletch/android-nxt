@@ -7,12 +7,14 @@ import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
 import org.owntracks.android.services.BackgroundService
+import org.owntracks.android.services.DetectedActivityChange
 import org.owntracks.android.ui.mixins.ServiceStarter
 import timber.log.Timber
 
 /**
  * Receives activity-transition events from Google Play Services, logs them, and forwards the
- * on-foot/not-on-foot ENTER transitions to [BackgroundService] — keeping GMS types out of `main`.
+ * on-foot / in-vehicle / still ENTER transitions to [BackgroundService] (as
+ * [DetectedActivityChange] ordinals) — keeping GMS types out of `main`.
  */
 class ActivityRecognitionReceiver : BroadcastReceiver(), ServiceStarter by ServiceStarter.Impl() {
   override fun onReceive(context: Context, intent: Intent) {
@@ -21,33 +23,33 @@ class ActivityRecognitionReceiver : BroadcastReceiver(), ServiceStarter by Servi
       return
     }
     val result = ActivityTransitionResult.extractResult(intent) ?: return
-    val onFootFlags = mutableListOf<Boolean>()
+    val changeOrdinals = mutableListOf<Int>()
     result.transitionEvents.forEach { event ->
       Timber.i(
           "Activity transition: ${activityName(event.activityType)} " +
               "${transitionName(event.transitionType)} (elapsedRealtime=${event.elapsedRealTimeNanos}ns)")
       if (event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER) {
-        onFootClassification(event.activityType)?.let(onFootFlags::add)
+        activityChange(event.activityType)?.let { changeOrdinals.add(it.ordinal) }
       }
     }
-    if (onFootFlags.isNotEmpty()) {
+    if (changeOrdinals.isNotEmpty()) {
       startService(
           context,
           BackgroundService.INTENT_ACTION_ACTIVITY_TRANSITION,
           Intent()
               .putExtra(
-                  BackgroundService.EXTRA_ACTIVITY_ON_FOOT_FLAGS, onFootFlags.toBooleanArray()))
+                  BackgroundService.EXTRA_ACTIVITY_CHANGE_ORDINALS, changeOrdinals.toIntArray()))
     }
   }
 
-  /** True for on-foot activities, false for still/in-vehicle, null for activities we ignore. */
-  private fun onFootClassification(activityType: Int): Boolean? =
+  /** Maps a detected activity to a [DetectedActivityChange], or null for activities we ignore. */
+  private fun activityChange(activityType: Int): DetectedActivityChange? =
       when (activityType) {
         DetectedActivity.WALKING,
         DetectedActivity.RUNNING,
-        DetectedActivity.ON_FOOT -> true
-        DetectedActivity.STILL,
-        DetectedActivity.IN_VEHICLE -> false
+        DetectedActivity.ON_FOOT -> DetectedActivityChange.ON_FOOT
+        DetectedActivity.IN_VEHICLE -> DetectedActivityChange.IN_VEHICLE
+        DetectedActivity.STILL -> DetectedActivityChange.STILL
         else -> null
       }
 

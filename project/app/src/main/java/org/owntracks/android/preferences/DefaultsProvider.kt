@@ -18,6 +18,7 @@ interface DefaultsProvider {
       Preferences::activityOnFootLocatorInterval -> 25
       Preferences::activityRevertDelaySeconds -> 180
       Preferences::autoMonitoringByActivity -> false
+      Preferences::boostLocatorWhileDriving -> true
       Preferences::autostartOnBoot -> true
       Preferences::cleanSession -> false
       Preferences::clientId ->
@@ -43,6 +44,7 @@ interface DefaultsProvider {
       Preferences::info -> true
       Preferences::keepalive -> 3600
       Preferences::locatorBoostedByActivity -> false
+      Preferences::locatorBoostedByDriving -> false
       Preferences::locatorDisplacement -> 500
       Preferences::locatorInterval -> 60
       Preferences::locatorPriority -> null

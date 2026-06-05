@@ -13,10 +13,15 @@ data class EffectiveLocatorSettings(
     val smallestDisplacement: Int?,
 )
 
+/** Coverage floor (metres) for the driving boost, so a stationary vehicle stops emitting points. */
+const val DRIVING_BOOST_DISPLACEMENT_METRES = 50
+
 /**
  * Computes the effective locator settings without mutating any stored preference. While boosting
- * (and not in Move mode) the locator is elevated to high accuracy with the on-foot
- * interval/displacement; otherwise the configured per-mode settings apply.
+ * (and not in Move mode) the locator is elevated to high accuracy: on foot with the configured
+ * on-foot interval/displacement, or driving with the speed-tiered [drivingIntervalSeconds] (see
+ * [DrivingSpeedTier]) and a small displacement floor. Otherwise the configured per-mode settings
+ * apply.
  */
 fun effectiveLocatorSettings(
     monitoring: MonitoringMode,
@@ -27,12 +32,18 @@ fun effectiveLocatorSettings(
     boostedByActivity: Boolean,
     activityOnFootLocatorInterval: Int,
     activityOnFootLocatorDisplacement: Int,
+    boostedByDriving: Boolean = false,
+    drivingIntervalSeconds: Int = DrivingSpeedTier.DEFAULT_INTERVAL_SECONDS,
 ): EffectiveLocatorSettings {
   if (boostedByActivity && monitoring != MonitoringMode.Move) {
     return EffectiveLocatorSettings(
         LocatorPriority.HighAccuracy,
         activityOnFootLocatorInterval,
         activityOnFootLocatorDisplacement)
+  }
+  if (boostedByDriving && monitoring != MonitoringMode.Move) {
+    return EffectiveLocatorSettings(
+        LocatorPriority.HighAccuracy, drivingIntervalSeconds, DRIVING_BOOST_DISPLACEMENT_METRES)
   }
   return when (monitoring) {
     MonitoringMode.Quiet,
