@@ -101,9 +101,13 @@ internal constructor(
     // Here we set up all the flow collectors to react to the universe changing. Usually contacts
     // and waypoints coming and going.
     viewModel.apply {
-      updateAllMarkers(allContacts.values.toSet())
       lifecycleScope.launch {
         viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+          // Reconcile every marker against current contact state each time the map returns to
+          // STARTED. Repo changes arrive on a no-replay SharedFlow, so updates that landed while
+          // the map was stopped (e.g. while the Friends list was on top) were dropped; without
+          // this re-sync the pins stay stale until that contact next emits a live update.
+          updateAllMarkers(allContacts.values.toSet())
           launch { mapCenter.collect { updateCamera(it) } }
           launch {
             contactUpdatedEvent.collect {
