@@ -231,6 +231,11 @@ To allow this, please enable Location in the device settings."</string>
     <string name="preferencesUnitsDefault">"Automatic (locale)"</string>
     <string name="preferencesUnitsMetric">"Metric (km/h, m)"</string>
     <string name="preferencesUnitsImperial">"Imperial (mph, ft)"</string>
+    <string name="preferencesHideStaleContacts">"Hide inactive contacts"</string>
+    <string name="preferencesHideStaleContactsSummary">"Hide a contact\'s marker once its last reported location is older than the threshold"</string>
+    <string name="preferencesStaleContactThresholdDays">"Hide after (days)"</string>
+    <string name="preferencesStaleContactThresholdDaysSummary">"Days without an update before a contact\'s marker is hidden"</string>
+    <string name="preferencesStaleContactThresholdDaysDialog">"Number of days without a location update before a contact\'s marker is hidden from the map"</string>
     <string name="preferencesMoveModeLocatorInterval">"Location interval (Move mode)"</string>
     <string name="preferencesMoveModeLocatorIntervalDialog">"How often should locations be requested from the device whilst in Move mode (seconds)"</string>
     <string name="preferencesMoveModeLocatorIntervalSummary">"Interval between location updates in Move mode"</string>

@@ -38,6 +38,7 @@ interface DefaultsProvider {
       Preferences::experimentalFeatures -> emptySet<String>()
       Preferences::fusedRegionDetection -> true
       Preferences::firstStart -> true
+      Preferences::hideStaleContacts -> false
       Preferences::host -> ""
       Preferences::ignoreInaccurateLocations -> 0
       Preferences::ignoreStaleLocations -> 0f
@@ -70,6 +71,7 @@ interface DefaultsProvider {
       Preferences::remoteConfiguration -> false
       Preferences::setupCompleted -> false
       Preferences::showRegionsOnMap -> false
+      Preferences::staleContactThresholdDays -> 2
       Preferences::sub -> true
       Preferences::subQos -> MqttQos.Two
       Preferences::subTopic -> DEFAULT_SUB_TOPIC

@@ -450,11 +450,37 @@ constructor(
     mutableMapLayerStyle.value = mapLayerStyle
   }
 
+  /**
+   * Whether a contact's last reported location is old enough that its marker should be hidden,
+   * based on the user's opt-in [Preferences.hideStaleContacts] /
+   * [Preferences.staleContactThresholdDays]. Contacts that only publish occasionally (e.g. when on
+   * a home network) would otherwise show a misleadingly stale position indefinitely.
+   */
+  fun isContactStale(contact: Contact): Boolean =
+      isLocationStale(
+          contact.locationTimestamp,
+          System.currentTimeMillis() / 1000,
+          preferences.hideStaleContacts,
+          preferences.staleContactThresholdDays)
+
   companion object {
     // Paris
     private const val STARTING_LATITUDE = 48.856826
     private const val STARTING_LONGITUDE = 2.292713
     private const val STARTING_ZOOM = 15.0
+
+    private const val SECONDS_PER_DAY = 86_400L
+
+    fun isLocationStale(
+        locationTimestampSeconds: Long,
+        nowSeconds: Long,
+        hideEnabled: Boolean,
+        thresholdDays: Int
+    ): Boolean =
+        hideEnabled &&
+            thresholdDays > 0 &&
+            locationTimestampSeconds > 0 &&
+            nowSeconds - locationTimestampSeconds > thresholdDays * SECONDS_PER_DAY
   }
 
   sealed class ViewMode {

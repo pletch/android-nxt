@@ -230,6 +230,8 @@ constructor(
 
   @Preference var fusedRegionDetection: Boolean by preferencesStore
 
+  @Preference var hideStaleContacts: Boolean by preferencesStore
+
   @Preference(exportModeHttp = false) var host: String by preferencesStore
 
   @Preference var ignoreInaccurateLocations: Int by preferencesStore
@@ -293,6 +295,8 @@ constructor(
   @Preference var reverseGeocodeProvider: ReverseGeocodeProvider by preferencesStore
 
   @Preference var showRegionsOnMap: Boolean by preferencesStore
+
+  @Preference var staleContactThresholdDays: Int by preferencesStore
 
   @Preference(exportModeHttp = false) var sub: Boolean by preferencesStore
 

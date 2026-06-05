@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto"
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     app:title="@string/preferencesMap">
 
     <androidx.preference.SwitchPreferenceCompat
@@ -21,5 +22,21 @@
         app:key="units"
         app:title="@string/preferencesUnits"
         app:useSimpleSummaryProvider="true" />
+
+    <androidx.preference.SwitchPreferenceCompat
+        app:iconSpaceReserved="false"
+        app:key="hideStaleContacts"
+        app:summary="@string/preferencesHideStaleContactsSummary"
+        app:title="@string/preferencesHideStaleContacts" />
+
+    <org.owntracks.android.support.widgets.EditIntegerPreference
+        android:digits="0123456789"
+        android:inputType="number"
+        app:dependency="hideStaleContacts"
+        app:dialogMessage="@string/preferencesStaleContactThresholdDaysDialog"
+        app:iconSpaceReserved="false"
+        app:key="staleContactThresholdDays"
+        app:summary="@string/preferencesStaleContactThresholdDaysSummary"
+        app:title="@string/preferencesStaleContactThresholdDays" />
 
 </PreferenceScreen>
