@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
@@ -12,6 +13,9 @@ import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.widget.ImageView
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.collection.LruCache
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.scale
 import androidx.databinding.BindingAdapter
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,6 +28,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.owntracks.android.R
 import org.owntracks.android.model.Contact
 import org.owntracks.android.support.widgets.TextDrawable
 import timber.log.Timber
@@ -31,7 +36,7 @@ import timber.log.Timber
 class ContactImageBindingAdapter
 @Inject
 constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
     private val memoryCache: ContactBitmapAndNameMemoryCache
 ) {
   @BindingAdapter(value = ["contact", "coroutineScope"])
@@ -42,8 +47,67 @@ constructor(
   private val faceDimensions = (48 * (context.resources.displayMetrics.densityDpi / 160f)).toInt()
   private val cacheMutex = Mutex()
 
-  @OptIn(ExperimentalEncodingApi::class)
+  // Composite (face + activity badge) bitmaps, keyed by the base bitmap's identity plus the
+  // activity. Keying on identity means a rebuilt base (e.g. after a card change invalidates the
+  // face cache) yields a fresh key, so stale composites fall out of the LRU without extra
+  // invalidation plumbing.
+  private val badgeCache = LruCache<String, Bitmap>(100)
+
+  /**
+   * Returns the contact's face/initials bitmap, with a small activity badge composited into the
+   * corner when the contact's reported velocity implies they're walking or driving.
+   */
   suspend fun getBitmapFromCache(contact: Contact): Bitmap {
+    val base = getBaseBitmapFromCache(contact)
+    val activity = ContactActivity.fromVelocity(contact.velocity)
+    if (activity == ContactActivity.NONE) {
+      return base
+    }
+    val key = "${System.identityHashCode(base)}:${activity.name}"
+    badgeCache.get(key)?.let {
+      return it
+    }
+    return withContext(Dispatchers.IO) {
+      composeWithBadge(base, activity).also { badgeCache.put(key, it) }
+    }
+  }
+
+  private fun composeWithBadge(base: Bitmap, activity: ContactActivity): Bitmap {
+    val (iconRes, colorRes) =
+        when (activity) {
+          ContactActivity.WALKING -> R.drawable.ic_directions_walk to R.color.activityBadgeWalking
+          ContactActivity.DRIVING -> R.drawable.ic_directions_car to R.color.activityBadgeDriving
+          ContactActivity.NONE -> return base
+        }
+    val result = base.copy(Bitmap.Config.ARGB_8888, true)
+    val canvas = Canvas(result)
+    val size = result.width.toFloat()
+    val radius = size * 0.3f
+    val cx = size - radius
+    val cy = size - radius
+
+    // White ring then coloured fill, so the badge reads against any map background.
+    canvas.drawCircle(cx, cy, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+    canvas.drawCircle(
+        cx,
+        cy,
+        radius * 0.85f,
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, colorRes) })
+
+    AppCompatResources.getDrawable(context, iconRes)?.apply {
+      val glyph = (radius * 1.1f).toInt()
+      setBounds(
+          (cx - glyph / 2).toInt(),
+          (cy - glyph / 2).toInt(),
+          (cx + glyph / 2).toInt(),
+          (cy + glyph / 2).toInt())
+      draw(canvas)
+    }
+    return result
+  }
+
+  @OptIn(ExperimentalEncodingApi::class)
+  private suspend fun getBaseBitmapFromCache(contact: Contact): Bitmap {
     Timber.v("Getting face bitmap for ${contact.id}")
     return withContext(Dispatchers.IO) {
       cacheMutex.withLock {

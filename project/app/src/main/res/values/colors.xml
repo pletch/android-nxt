@@ -15,4 +15,7 @@
     <color name="fabMyLocationBackground">#ffffffff</color>
     <color name="fabMyLocationForegroundActiveTint">@color/BlueDot</color>
     <color name="fabMyLocationForegroundInActiveTint">#ff3e4245</color>
+
+    <color name="activityBadgeWalking">#ff2e7d32</color>
+    <color name="activityBadgeDriving">#ff1565c0</color>
 </resources>
