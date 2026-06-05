@@ -7,6 +7,7 @@ import com.hivemq.client.mqtt.MqttGlobalPublishFilter
 import com.hivemq.client.mqtt.datatypes.MqttQos
 import com.hivemq.client.mqtt.lifecycle.MqttClientConnectedListener
 import com.hivemq.client.mqtt.lifecycle.MqttClientDisconnectedListener
+import com.hivemq.client.mqtt.lifecycle.MqttDisconnectSource
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
 import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish
 import com.hivemq.client.mqtt.mqtt3.message.subscribe.Mqtt3Subscribe
@@ -16,6 +17,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.stream.Collectors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -23,6 +25,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerializationException
 import org.owntracks.android.data.EndpointState
 import org.owntracks.android.data.repos.EndpointStateRepo
@@ -100,8 +103,7 @@ class MQTTMessageProcessorEndpoint(
     }
   }
 
-  // Fires on every (re)connect. Auto-reconnect doesn't restore subscriptions, so (re)subscribe
-  // here.
+  // Fires on every (re)connect. Subscriptions don't survive a reconnect, so (re)subscribe here.
   private val connectedListener = MqttClientConnectedListener {
     scope.launch {
       endpointStateRepo.setState(EndpointState.CONNECTED)
@@ -130,7 +132,11 @@ class MQTTMessageProcessorEndpoint(
   private val disconnectedListener = MqttClientDisconnectedListener { context ->
     Timber.w(context.cause, "MQTT disconnected (source=${context.source})")
     scope.launch { endpointStateRepo.setState(EndpointState.DISCONNECTED) }
-    // HiveMQ's automatic reconnect handles retry.
+    // We own reconnection now that HiveMQ auto-reconnect is off. Schedule a reconnect for any drop
+    // or failed connect we didn't initiate ourselves (a USER source is our own disconnect()).
+    if (context.source != MqttDisconnectSource.USER) {
+      scheduler.scheduleMqttReconnect()
+    }
   }
 
   private suspend fun connect(config: MqttConnectionConfiguration): Result<Unit> =
@@ -148,11 +154,18 @@ class MQTTMessageProcessorEndpoint(
           connectionConfiguration = config
           newClient.publishes(MqttGlobalPublishFilter.ALL) { onIncomingPublish(it) }
           Timber.d("Connecting to ${config.host}:${config.port}")
-          withContext(ioDispatcher) { newClient.connect(config.buildConnect()).await() }
+          // Bound the attempt so a stalled connect can never hold connectingLock indefinitely
+          // (which previously wedged all reconnects until the process was killed).
+          withTimeout(config.timeout.coerceAtLeast(15.seconds)) {
+            withContext(ioDispatcher) { newClient.connect(config.buildConnect()).await() }
+          }
           Result.success(Unit)
         } catch (e: Exception) {
           Timber.e(e, "MQTT client unable to connect to endpoint")
           endpointStateRepo.setState(EndpointState.ERROR.withError(e))
+          // No HiveMQ auto-reconnect, so schedule our own retry (deduped as unique work). A failed
+          // CONNACK also fires disconnectedListener; both funnel to the same scheduled reconnect.
+          scheduler.scheduleMqttReconnect()
           Result.failure(e)
         } finally {
           mqttConnectionIdlingResource.setIdleState(true)
@@ -232,8 +245,8 @@ class MQTTMessageProcessorEndpoint(
   }
 
   override fun onPreferenceChanged(properties: Set<String>) {
-    if (preferences.mode != ConnectionMode.MQTT || client == null) {
-      Timber.d("Preference changed but MQTT not activated. Ignoring.")
+    if (preferences.mode != ConnectionMode.MQTT) {
+      Timber.d("Preference changed but MQTT not active. Ignoring.")
       return
     }
     val propertiesWeWantToReconnectOn =
@@ -266,15 +279,15 @@ class MQTTMessageProcessorEndpoint(
   }
 
   override suspend fun reconnect(): Result<Unit> {
+    // Always rebuild from current preferences so any reconnect picks up credential/host changes.
     val config =
-        connectionConfiguration
-            ?: try {
-              getEndpointConfiguration()
-            } catch (e: ConfigurationIncompleteException) {
-              Timber.w("MQTT not configured, skipping reconnect: ${e.message}")
-              endpointStateRepo.setState(EndpointState.ERROR_CONFIGURATION.withError(e))
-              return Result.failure(e)
-            }
+        try {
+          getEndpointConfiguration()
+        } catch (e: ConfigurationIncompleteException) {
+          Timber.w("MQTT not configured, skipping reconnect: ${e.message}")
+          endpointStateRepo.setState(EndpointState.ERROR_CONFIGURATION.withError(e))
+          return Result.failure(e)
+        }
     return connect(config)
   }
 
