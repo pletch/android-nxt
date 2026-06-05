@@ -231,7 +231,7 @@ dependencies {
   implementation(libs.osmdroid)
 
   // Connectivity
-  implementation(libs.paho.mqttclient)
+  implementation(libs.hivemq.mqttclient)
   implementation(libs.okhttp)
 
   // Utility libraries

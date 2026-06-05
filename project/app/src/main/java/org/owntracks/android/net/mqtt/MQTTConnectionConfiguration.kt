@@ -1,25 +1,32 @@
 package org.owntracks.android.net.mqtt
 
 import android.content.Context
-import java.net.URI
-import java.net.URISyntaxException
+import com.hivemq.client.mqtt.MqttClient
+import com.hivemq.client.mqtt.MqttWebSocketConfig
+import com.hivemq.client.mqtt.datatypes.MqttQos
+import com.hivemq.client.mqtt.lifecycle.MqttClientConnectedListener
+import com.hivemq.client.mqtt.lifecycle.MqttClientDisconnectedListener
+import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
+import com.hivemq.client.mqtt.mqtt3.message.auth.Mqtt3SimpleAuth
+import com.hivemq.client.mqtt.mqtt3.message.connect.Mqtt3Connect
+import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish
 import java.security.KeyStore
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
-import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.json.JSONObject
-import org.owntracks.android.net.CALeafCertMatchingHostnameVerifier
 import org.owntracks.android.net.ConnectionConfiguration
 import org.owntracks.android.preferences.DefaultsProvider
 import org.owntracks.android.preferences.Preferences
-import org.owntracks.android.preferences.types.MqttProtocolLevel
-import org.owntracks.android.preferences.types.MqttQos
 import org.owntracks.android.support.interfaces.ConfigurationIncompleteException
-import timber.log.Timber
 
+/**
+ * Holds the MQTT connection settings and builds the HiveMQ [Mqtt3AsyncClient] + [Mqtt3Connect] from
+ * them. TLS reuses [buildMqttSslConfig]; WebSocket uses [wsPath] (TLS + WebSocket gives wss).
+ */
 data class MqttConnectionConfiguration(
     val tls: Boolean,
     val ws: Boolean,
+    val wsPath: String,
     val host: String,
     val port: Int,
     val clientId: String,
@@ -28,71 +35,72 @@ data class MqttConnectionConfiguration(
     val keepAlive: Duration,
     val timeout: Duration,
     val cleanSession: Boolean,
-    val mqttProtocolLevel: MqttProtocolLevel,
     val tlsClientCertAlias: String,
     val willTopic: String,
     val topicsToSubscribeTo: Set<String>,
-    val subQos: MqttQos,
-    val maxInFlight: Int = 500
+    val subQos: org.owntracks.android.preferences.types.MqttQos
 ) : ConnectionConfiguration {
-  private val scheme =
-      if (ws) {
-        if (tls) "wss" else "ws"
-      } else {
-        if (tls) "ssl" else "tcp"
-      }
 
-  @kotlin.jvm.Throws(ConfigurationIncompleteException::class)
+  @Throws(ConfigurationIncompleteException::class)
   override fun validate() {
-    try {
-      if (host.isBlank()) {
-        throw ConfigurationIncompleteException(MissingHostException())
-      }
-      connectionString.run { Timber.v("MQTT Connection String validated as $this") }
-    } catch (e: URISyntaxException) {
-      throw ConfigurationIncompleteException(e)
+    if (host.isBlank()) {
+      throw ConfigurationIncompleteException(MissingHostException())
     }
   }
 
-  val connectionString: String
-    @Throws(URISyntaxException::class)
-    get() {
-      return URI(scheme, null, host, port, "", "", "").toString()
+  /**
+   * Builds (but does not connect) the HiveMQ client. KeyChain access blocks, so call off-thread.
+   */
+  fun buildClient(
+      context: Context,
+      caKeyStore: KeyStore,
+      connectedListener: MqttClientConnectedListener,
+      disconnectedListener: MqttClientDisconnectedListener
+  ): Mqtt3AsyncClient {
+    val builder =
+        MqttClient.builder()
+            .identifier(clientId)
+            .serverHost(host)
+            .serverPort(port)
+            .automaticReconnectWithDefaultConfig()
+            .addConnectedListener(connectedListener)
+            .addDisconnectedListener(disconnectedListener)
+    if (tls) {
+      builder.sslConfig(
+          buildMqttSslConfig(
+              context, caKeyStore, tlsClientCertAlias, timeout.inWholeSeconds.toInt()))
     }
+    if (ws) {
+      // TLS + WebSocket composes to wss. The server path defaults to /mqtt (configurable).
+      builder.webSocketConfig(MqttWebSocketConfig.builder().serverPath(wsPath).build())
+    }
+    return builder.useMqttVersion3().buildAsync()
+  }
 
-  fun getConnectOptions(context: Context, caKeyStore: KeyStore): MqttConnectOptions =
-      MqttConnectOptions().apply {
-        userName = username
-        password = this@MqttConnectionConfiguration.password.toCharArray()
-        mqttVersion = mqttProtocolLevel.value
-        isAutomaticReconnect = false
-        keepAliveInterval = keepAlive.inWholeSeconds.coerceAtLeast(0).toInt()
-        connectionTimeout = timeout.inWholeSeconds.coerceAtLeast(1).toInt()
-        isCleanSession = cleanSession
-        setWill(
-            willTopic,
-            JSONObject().apply { put("_type", "lwt") }.toString().toByteArray(),
-            0,
-            false)
-        maxInflight = maxInFlight
-        if (tls) {
-          socketFactory =
-              getSocketFactory(
-                  timeout.inWholeSeconds.toInt(), true, tlsClientCertAlias, context, caKeyStore)
-
-          /* The default for paho is to validate hostnames as per the HTTPS spec. However, this causes
-          a bit of a breakage for some users using self-signed certificates, where the verification of
-          the hostname is unnecessary under certain circumstances. Specifically when the fingerprint of
-          the server leaf certificate is the same as the certificate supplied as the CA (as would be the
-          case using self-signed certs.
-
-          So we turn off HTTPS behaviour and supply our own hostnameverifier that knows about the self-signed
-          case.
-           */
-          isHttpsHostnameVerificationEnabled = false
-          sslHostnameVerifier = CALeafCertMatchingHostnameVerifier()
-        }
-      }
+  /** The CONNECT packet (keep-alive, clean session, auth, LWT). Reused across auto-reconnects. */
+  fun buildConnect(): Mqtt3Connect {
+    val will =
+        Mqtt3Publish.builder()
+            .topic(willTopic)
+            .payload(JSONObject().apply { put("_type", "lwt") }.toString().toByteArray())
+            .qos(MqttQos.AT_MOST_ONCE)
+            .retain(false)
+            .build()
+    val builder =
+        Mqtt3Connect.builder()
+            .keepAlive(keepAlive.inWholeSeconds.coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
+            .cleanSession(cleanSession)
+            .willPublish(will)
+    if (username.isNotEmpty()) {
+      val auth =
+          Mqtt3SimpleAuth.builder()
+              .username(username)
+              .let { if (password.isNotEmpty()) it.password(password.toByteArray()) else it }
+              .build()
+      builder.simpleAuth(auth)
+    }
+    return builder.build()
+  }
 
   class MissingHostException : Exception()
 }
@@ -101,6 +109,7 @@ fun Preferences.toMqttConnectionConfiguration(): MqttConnectionConfiguration =
     MqttConnectionConfiguration(
         tls,
         ws,
+        wsPath,
         host,
         port,
         clientId,
@@ -109,7 +118,6 @@ fun Preferences.toMqttConnectionConfiguration(): MqttConnectionConfiguration =
         keepalive.seconds,
         connectionTimeoutSeconds.seconds,
         cleanSession,
-        mqttProtocolLevel,
         tlsClientCrt,
         pubTopicBaseWithUserDetails,
         if (subTopic.contains(" ")) {

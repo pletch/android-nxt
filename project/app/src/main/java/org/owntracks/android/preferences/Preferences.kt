@@ -325,6 +325,9 @@ constructor(
 
   @Preference(exportModeHttp = false) var ws: Boolean by preferencesStore
 
+  // WebSocket server path (used when [ws] is enabled), e.g. "/mqtt".
+  @Preference(exportModeHttp = false) var wsPath: String by preferencesStore
+
   // Preferences we store but don't export / import
   var firstStart: Boolean by preferencesStore
   var setupCompleted: Boolean by preferencesStore

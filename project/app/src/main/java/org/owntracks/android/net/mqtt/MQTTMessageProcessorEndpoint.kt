@@ -1,49 +1,29 @@
 package org.owntracks.android.net.mqtt
 
-import android.app.AlarmManager
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.IntentFilter
 import android.net.ConnectivityManager
-import android.os.Build
-import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import com.hivemq.client.mqtt.MqttGlobalPublishFilter
+import com.hivemq.client.mqtt.datatypes.MqttQos
+import com.hivemq.client.mqtt.lifecycle.MqttClientConnectedListener
+import com.hivemq.client.mqtt.lifecycle.MqttClientDisconnectedListener
+import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
+import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish
+import com.hivemq.client.mqtt.mqtt3.message.subscribe.Mqtt3Subscribe
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.IOException
-import java.net.ConnectException
-import java.net.UnknownHostException
 import java.security.KeyStore
-import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.CompletableFuture
 import java.util.stream.Collectors
-import javax.net.ssl.SSLHandshakeException
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.DurationUnit
-import kotlin.time.measureTime
-import kotlin.time.measureTimedValue
-import kotlin.time.toDuration
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
-import org.eclipse.paho.client.mqttv3.IMqttActionListener
-import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
-import org.eclipse.paho.client.mqttv3.IMqttToken
-import org.eclipse.paho.client.mqttv3.MqttAsyncClient
-import org.eclipse.paho.client.mqttv3.MqttCallbackExtended
-import org.eclipse.paho.client.mqttv3.MqttException
-import org.eclipse.paho.client.mqttv3.MqttException.REASON_CODE_CLIENT_ALREADY_DISCONNECTED
-import org.eclipse.paho.client.mqttv3.MqttException.REASON_CODE_CLIENT_EXCEPTION
-import org.eclipse.paho.client.mqttv3.MqttException.REASON_CODE_CONNECTION_LOST
-import org.eclipse.paho.client.mqttv3.MqttException.REASON_CODE_SERVER_CONNECT_ERROR
-import org.eclipse.paho.client.mqttv3.MqttMessage
 import org.owntracks.android.data.EndpointState
 import org.owntracks.android.data.repos.EndpointStateRepo
 import org.owntracks.android.di.ApplicationScope
@@ -81,42 +61,27 @@ class MQTTMessageProcessorEndpoint(
 
   override val modeId: ConnectionMode = ConnectionMode.MQTT
 
-  private val connectingLock = Semaphore(1)
+  private val connectingLock = Mutex()
   private val connectivityManager: ConnectivityManager = applicationContext.getSystemService()!!
-  private val alarmManager: AlarmManager = applicationContext.getSystemService()!!
-  private var mqttClientAndConfiguration: MqttClientAndConfiguration? = null
-
-  private var pingAlarmReceiver: BroadcastReceiver? = null
+  private var client: Mqtt3AsyncClient? = null
+  private var connectionConfiguration: MqttConnectionConfiguration? = null
 
   internal val networkChangeCallback =
       NetworkTrackingCallback(
           { endpointStateRepo.endpointState.value },
           { scope.launch { reconnect() } },
-          {
-            scope.launch {
-              connectingLock.withPermitLogged("network lost") { disconnect() }
-              // Schedule a reconnect in case onAvailable already ran and its reconnect completed
-              // before this coroutine acquired the lock — without this, the freshly-established
-              // connection is torn down and no further reconnect is ever triggered.
-              scheduler.scheduleMqttReconnect()
-            }
-          })
+          { scope.launch { connectingLock.withLock { disconnect() } } })
 
   override fun activate() {
-    Timber.v("MQTT Activate")
+    Timber.v("MQTT activate")
     preferences.registerOnPreferenceChangedListener(this)
     networkChangeCallback.reset()
     connectivityManager.registerDefaultNetworkCallback(networkChangeCallback)
     scope.launch {
       try {
-        val configuration = getEndpointConfiguration()
-        reconnect(configuration)
+        connect(getEndpointConfiguration())
       } catch (e: ConfigurationIncompleteException) {
-        when (e.cause) {
-          is MqttConnectionConfiguration.MissingHostException ->
-              Timber.e("MQTT Configuration not complete because host is missing, cannot activate")
-          else -> Timber.e(e, "MQTT Configuration not complete, cannot activate")
-        }
+        Timber.e(e, "MQTT configuration not complete, cannot activate")
         endpointStateRepo.setState(EndpointState.ERROR_CONFIGURATION.withError(e))
       }
     }
@@ -124,61 +89,117 @@ class MQTTMessageProcessorEndpoint(
 
   override fun deactivate() {
     preferences.unregisterOnPreferenceChangedListener(this)
-    connectivityManager.unregisterNetworkCallback(networkChangeCallback)
+    try {
+      connectivityManager.unregisterNetworkCallback(networkChangeCallback)
+    } catch (e: IllegalArgumentException) {
+      Timber.d("Network callback already unregistered")
+    }
     scope.launch {
-      connectingLock.withPermitLogged("mqtt deactivate") { disconnect() }
+      connectingLock.withLock { disconnect() }
       scheduler.cancelAllTasks()
     }
   }
 
-  private val disconnectTimeout = 2.seconds
+  // Fires on every (re)connect. Auto-reconnect doesn't restore subscriptions, so (re)subscribe
+  // here.
+  private val connectedListener = MqttClientConnectedListener {
+    scope.launch {
+      endpointStateRepo.setState(EndpointState.CONNECTED)
+      val c = client ?: return@launch
+      val config = connectionConfiguration ?: return@launch
+      try {
+        config.topicsToSubscribeTo.forEach { topic ->
+          c.subscribe(
+                  Mqtt3Subscribe.builder()
+                      .topicFilter(topic)
+                      .qos(MqttQos.fromCode(config.subQos.value) ?: MqttQos.AT_LEAST_ONCE)
+                      .build())
+              .await()
+        }
+        Timber.d("MQTT subscribed to ${config.topicsToSubscribeTo}")
+      } catch (e: Exception) {
+        Timber.w(e, "MQTT subscribe failed")
+      }
+      messageProcessor.notifyOutgoingMessageQueue()
+      if (preferences.publishLocationOnConnect) {
+        messageProcessor.publishLocationMessage(MessageLocation.ReportType.DEFAULT)
+      }
+    }
+  }
+
+  private val disconnectedListener = MqttClientDisconnectedListener { context ->
+    Timber.w(context.cause, "MQTT disconnected (source=${context.source})")
+    scope.launch { endpointStateRepo.setState(EndpointState.DISCONNECTED) }
+    // HiveMQ's automatic reconnect handles retry.
+  }
+
+  private suspend fun connect(config: MqttConnectionConfiguration): Result<Unit> =
+      connectingLock.withLock {
+        disconnect()
+        endpointStateRepo.setState(EndpointState.CONNECTING)
+        mqttConnectionIdlingResource.setIdleState(false)
+        try {
+          val newClient =
+              withContext(ioDispatcher) {
+                config.buildClient(
+                    applicationContext, caKeyStore, connectedListener, disconnectedListener)
+              }
+          client = newClient
+          connectionConfiguration = config
+          newClient.publishes(MqttGlobalPublishFilter.ALL) { onIncomingPublish(it) }
+          Timber.d("Connecting to ${config.host}:${config.port}")
+          withContext(ioDispatcher) { newClient.connect(config.buildConnect()).await() }
+          Result.success(Unit)
+        } catch (e: Exception) {
+          Timber.e(e, "MQTT client unable to connect to endpoint")
+          endpointStateRepo.setState(EndpointState.ERROR.withError(e))
+          Result.failure(e)
+        } finally {
+          mqttConnectionIdlingResource.setIdleState(true)
+        }
+      }
 
   private suspend fun disconnect() {
-    withContext(ioDispatcher) {
-      Timber.v("MQTT attempting Disconnect")
-      measureTime {
-            mqttClientAndConfiguration?.run {
-              try {
-                mqttClient.disconnect()
-              } catch (e: MqttException) {
-                when (e.reasonCode.toShort()) {
-                  REASON_CODE_CLIENT_ALREADY_DISCONNECTED -> Timber.d("Client already disconnected")
-                  else -> {
-                    Timber.d(
-                        e,
-                        "Could not disconnect from client gently. Forcing disconnect with timeout=$disconnectTimeout")
-                    try {
-                      mqttClient.disconnectForcibly(
-                          disconnectTimeout.inWholeMilliseconds,
-                          disconnectTimeout.inWholeMilliseconds,
-                          true)
-                    } catch (e: Exception) {
-                      Timber.d(e, "Could not forcibly disconnect MQTT client. Ignoring.")
-                    }
-                  }
-                }
-              }
-              endpointStateRepo.setState(EndpointState.DISCONNECTED)
-              try {
-                mqttClient.close(true)
-              } catch (e: Exception) {
-                Timber.w(e, "Error closing MQTT client. Ignoring.")
-              }
-              try {
-                pingAlarmReceiver?.run(applicationContext::unregisterReceiver)
-                Timber.d("Unregistered ping alarm receiver")
-              } catch (e: IllegalArgumentException) {
-                Timber.d("Ping alarm receiver already unregistered")
-              }
-            }
-          }
-          .apply { Timber.d("MQTT disconnected in $this") }
+    client?.let { existing ->
+      Timber.v("MQTT disconnecting")
+      withContext(ioDispatcher) {
+        try {
+          existing.disconnect().await()
+        } catch (e: Exception) {
+          Timber.d(e, "Error during MQTT disconnect, ignoring")
+        }
+      }
+    }
+    client = null
+    endpointStateRepo.setState(EndpointState.DISCONNECTED)
+  }
+
+  private fun onIncomingPublish(publish: Mqtt3Publish) {
+    val topic = publish.topic.toString()
+    Timber.d("Received MQTT message on $topic")
+    val payload = publish.payloadAsBytes
+    if (payload.isEmpty()) {
+      onMessageReceived(
+          MessageClear().apply { this.topic = topic.replace(MessageCard.BASETOPIC_SUFFIX, "") })
+    } else {
+      try {
+        onMessageReceived(
+            parser.fromJson(payload).apply {
+              this.topic = topic
+              this.retained = publish.isRetain
+              this.qos = publish.qos.code
+            })
+      } catch (e: Parser.EncryptionException) {
+        Timber.e("Unable to decrypt received message on $topic")
+      } catch (e: SerializationException) {
+        Timber.w("Malformed JSON message received on $topic")
+      }
     }
   }
 
   override fun getEndpointConfiguration(): MqttConnectionConfiguration {
     val configuration = preferences.toMqttConnectionConfiguration()
-    configuration.validate() // Throws an exception if not valid
+    configuration.validate()
     return configuration
   }
 
@@ -186,77 +207,35 @@ class MQTTMessageProcessorEndpoint(
 
   override suspend fun sendMessage(message: MessageBase): Result<Unit> {
     Timber.d("Sending message $message")
-    if (mqttClientAndConfiguration == null) {
-      return Result.failure(NotReadyException())
-    }
+    val c = client ?: return Result.failure(NotReadyException())
     if (endpointStateRepo.endpointState.value != EndpointState.CONNECTED) {
       return Result.failure(NotConnectedException())
     }
-    // Updates the message data + metadata with things that are in our preferences
     message.annotateFromPreferences(preferences)
-
-    // We want to block until this completes off-thread, because we've been called sync by the
-    // outgoing message loop
-    return mqttClientAndConfiguration!!.run {
-      runBlocking {
-        var sendMessageThrowable: Throwable? = null
-        val handler = CoroutineExceptionHandler { _, throwable -> sendMessageThrowable = throwable }
-        val job =
-            launch(ioDispatcher + CoroutineName("MQTT SendMessage") + handler) {
-              try {
-                Timber.d("Publishing message $message")
-                measureTime {
-                      while (mqttClient.inFlightMessageCount >=
-                          mqttConnectionConfiguration.maxInFlight) {
-                        Timber.v("Pausing to wait for inflight to drop below max")
-                        delay(100.milliseconds)
-                      }
-                      mqttClient
-                          .publish(
-                              message.topic,
-                              message.toJsonBytes(parser),
-                              message.qos,
-                              message.retained)
-                          .also { Timber.v("MQTT message sent with messageId=${it.messageId}. ") }
-                    }
-                    .apply { Timber.i("Message $message sent in $this") }
-              } catch (e: Exception) {
-                Timber.w(e, "Error publishing message $message")
-                when (e) {
-                  is IOException -> messageProcessor.onMessageDeliveryFailedFinal(message)
-                  is MqttException -> {
-                    if (e.reasonCode.toShort() != MqttException.REASON_CODE_MAX_INFLIGHT) {
-                      messageProcessor.onMessageDeliveryFailed(message)
-                      Timber.w(e, "Error publishing message. Doing a reconnect")
-                      reconnect(mqttConnectionConfiguration)
-                    }
-                    throw OutgoingMessageSendingException(e)
-                  }
-                  else -> {
-                    messageProcessor.onMessageDeliveryFailed(message)
-                    throw OutgoingMessageSendingException(e)
-                  }
-                }
-              }
-            }
-        Timber.d("Waiting for sendmessage job for message $message to finish")
-        job.join()
-        sendMessageThrowable?.run { Result.failure(this) } ?: Result.success(Unit)
+    return try {
+      withContext(ioDispatcher) {
+        c.publishWith()
+            .topic(message.topic)
+            .payload(message.toJsonBytes(parser))
+            .qos(MqttQos.fromCode(message.qos) ?: MqttQos.AT_LEAST_ONCE)
+            .retain(message.retained)
+            .send()
+            .await()
       }
+      Timber.v("MQTT message sent")
+      Result.success(Unit)
+    } catch (e: Exception) {
+      Timber.w(e, "Error publishing message $message")
+      messageProcessor.onMessageDeliveryFailed(message)
+      Result.failure(OutgoingMessageSendingException(e))
     }
   }
 
   override fun onPreferenceChanged(properties: Set<String>) {
-    if (preferences.mode != ConnectionMode.MQTT || mqttClientAndConfiguration == null) {
+    if (preferences.mode != ConnectionMode.MQTT || client == null) {
       Timber.d("Preference changed but MQTT not activated. Ignoring.")
       return
     }
-    Timber.v("MQTT preferences changed: [${properties.joinToString(",")}]")
-    /*
-     * Similar to the HTTP endpoint, there are other preferences that trigger a complete reset, and
-     * these are handled in the [MessageProcessor]. These properties below will trigger an MQTT reset
-     * and attempt to redeliver the message queue head, but will not clear the queue.
-     */
     val propertiesWeWantToReconnectOn =
         setOf(
             Preferences::deviceId.name,
@@ -264,7 +243,8 @@ class MQTTMessageProcessorEndpoint(
             Preferences::mqttProtocolLevel.name,
             Preferences::password.name,
             Preferences::tls.name,
-            Preferences::ws.name)
+            Preferences::ws.name,
+            Preferences::wsPath.name)
     if (propertiesWeWantToReconnectOn
         .stream()
         .filter(properties::contains)
@@ -273,7 +253,7 @@ class MQTTMessageProcessorEndpoint(
       Timber.d("Reconnecting to broker because of preference change")
       scope.launch {
         try {
-          reconnect(getEndpointConfiguration())
+          connect(getEndpointConfiguration())
         } catch (e: Exception) {
           when (e) {
             is ConfigurationIncompleteException ->
@@ -285,240 +265,28 @@ class MQTTMessageProcessorEndpoint(
     }
   }
 
-  private val mqttCallback =
-      object : MqttCallbackExtended {
-
-        override fun connectionLost(cause: Throwable) {
-          when (cause) {
-            is IOException -> Timber.w("Connection Lost: ${cause.message}")
-            else -> Timber.w(cause, "Connection Lost")
-          }
-          scope.launch { endpointStateRepo.setState(EndpointState.DISCONNECTED) }
-          scheduler.scheduleMqttReconnect()
-        }
-
-        override fun messageArrived(topic: String, message: MqttMessage) {
-          Timber.d("Received MQTT message on $topic: message=$message")
-          if (message.payload.isEmpty()) {
-            onMessageReceived(
-                MessageClear().apply {
-                  this.topic = topic.replace(MessageCard.BASETOPIC_SUFFIX, "")
-                })
-          } else {
-            try {
-              Timber.d("Received message: ${String(message.payload)}")
-              onMessageReceived(
-                  parser
-                      .fromJson(message.payload)
-                      .apply {
-                        this.topic = topic
-                        this.retained = message.isRetained
-                        this.qos = message.qos
-                      }
-                      .also { Timber.d("Parsed message: $it") })
-            } catch (e: Parser.EncryptionException) {
-              Timber.e("Unable to decrypt received message ${message.id} on $topic")
-            } catch (e: SerializationException) {
-              Timber.w("Malformed JSON message received ${message.id} on $topic")
+  override suspend fun reconnect(): Result<Unit> {
+    val config =
+        connectionConfiguration
+            ?: try {
+              getEndpointConfiguration()
+            } catch (e: ConfigurationIncompleteException) {
+              Timber.w("MQTT not configured, skipping reconnect: ${e.message}")
+              endpointStateRepo.setState(EndpointState.ERROR_CONFIGURATION.withError(e))
+              return Result.failure(e)
             }
-          }
-        }
-
-        override fun deliveryComplete(token: IMqttDeliveryToken?) {
-          token?.run {
-            Timber.v(
-                "Delivery complete messageId=$messageId topics=${(topics?: emptyArray()).joinToString(",")}}")
-          }
-        }
-
-        override fun connectComplete(reconnect: Boolean, serverURI: String?) {
-          Timber.v("MQTT Connection complete to $serverURI. Reconnect=$reconnect")
-        }
-      }
-
-  /**
-   * Creates an MQTT client and connects to the broker, then subscribes to the configured topics.
-   */
-  @kotlin.jvm.Throws(MqttException::class)
-  private suspend fun connectToBroker(
-      mqttConnectionConfiguration: MqttConnectionConfiguration
-  ): Result<Unit> =
-      withContext(ioDispatcher) {
-        Timber.v("MQTT connect to Broker")
-        measureTimedValue {
-              endpointStateRepo.setState(EndpointState.CONNECTING)
-              try {
-                val executorService = ScheduledThreadPoolExecutor(8)
-                val pingSender =
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                        alarmManager.canScheduleExactAlarms()) {
-                      AlarmPingSender(applicationContext)
-                    } else {
-                      AsyncPingSender(scope)
-                    }
-
-                MqttAsyncClient(
-                        mqttConnectionConfiguration.connectionString,
-                        mqttConnectionConfiguration.clientId,
-                        RoomMqttClientPersistence(applicationContext),
-                        pingSender,
-                        executorService,
-                        AndroidHighResolutionTimer())
-                    .also {
-                      mqttClientAndConfiguration =
-                          MqttClientAndConfiguration(it, mqttConnectionConfiguration)
-                    }
-                    .apply {
-                      mqttConnectionConfiguration
-                          .getConnectOptions(applicationContext, caKeyStore)
-                          .also {
-                            Timber.d(
-                                "Connecting to ${mqttConnectionConfiguration.connectionString} timeout = ${ it.connectionTimeout.toDuration(DurationUnit.SECONDS)}")
-                          }
-                          .run { connect(this).waitForCompletion() }
-                      pingAlarmReceiver = MQTTPingAlarmReceiver(this)
-                      ContextCompat.registerReceiver(
-                              applicationContext,
-                              pingAlarmReceiver,
-                              IntentFilter(AlarmPingSender.PING_INTENT_ACTION),
-                              ContextCompat.RECEIVER_EXPORTED)
-                          .also { Timber.d("Registered ping alarm receiver") }
-                      Timber.i(
-                          "MQTT Connected. Subscribing to ${mqttConnectionConfiguration.topicsToSubscribeTo}")
-                      endpointStateRepo.setState(EndpointState.CONNECTED)
-                      setCallback(mqttCallback)
-                      subscribe(
-                              mqttConnectionConfiguration.topicsToSubscribeTo.toTypedArray(),
-                              IntArray(mqttConnectionConfiguration.topicsToSubscribeTo.size) {
-                                mqttConnectionConfiguration.subQos.value
-                              })
-                          .waitForCompletion()
-                      Timber.d("MQTT Subscribed")
-
-                      messageProcessor.notifyOutgoingMessageQueue()
-                      if (preferences.publishLocationOnConnect) {
-                        // TODO fix the trigger here
-                        messageProcessor.publishLocationMessage(MessageLocation.ReportType.DEFAULT)
-                      }
-                    }
-                Result.success(Unit)
-              } catch (e: Exception) {
-                val errorLog = "MQTT client unable to connect to endpoint"
-                when (e) {
-                  is MqttException -> {
-                    when (e.reasonCode) {
-                      REASON_CODE_CONNECTION_LOST.toInt() ->
-                          Timber.w(
-                              e.cause,
-                              "MQTT client unable to connect to endpoint because the connection was lost")
-                      REASON_CODE_CLIENT_EXCEPTION.toInt() ->
-                          when (e.cause) {
-                            is SSLHandshakeException ->
-                                Timber.e("$errorLog: ${(e.cause as SSLHandshakeException).message}")
-                            is UnknownHostException ->
-                                Timber.e(
-                                    "$errorLog: Unknown host \"${(e.cause as UnknownHostException).message}\"")
-                            else -> Timber.e(e, errorLog)
-                          }
-                      REASON_CODE_SERVER_CONNECT_ERROR.toInt() -> {
-                        when (e.cause) {
-                          is ConnectException -> {
-                            Timber.w("$errorLog: ${(e.cause as ConnectException).message}")
-                          }
-                        }
-                      }
-                      else -> Timber.e(e, errorLog)
-                    }
-                  }
-                  else -> {
-                    Timber.e(e, errorLog)
-                  }
-                }
-                endpointStateRepo.setState(EndpointState.ERROR.withError(e))
-                scheduler.scheduleMqttReconnect()
-                Result.failure(e)
-              }
-            }
-            .apply { Timber.d("MQTT connection attempt completed in ${this.duration}") }
-            .value
-      }
-
-  override suspend fun reconnect(): Result<Unit> =
-      mqttClientAndConfiguration?.mqttConnectionConfiguration?.run { reconnect(this) }
-          ?: try {
-            reconnect(getEndpointConfiguration())
-          } catch (e: ConfigurationIncompleteException) {
-            Timber.w("MQTT not configured, skipping reconnect: ${e.message}")
-            endpointStateRepo.setState(EndpointState.ERROR_CONFIGURATION.withError(e))
-            Result.failure(e)
-          }
-
-  private suspend fun reconnect(
-      mqttConnectionConfiguration: MqttConnectionConfiguration
-  ): Result<Unit> =
-      connectingLock.withPermitLogged("MQTT reconnect") {
-        disconnect()
-        try {
-          mqttConnectionIdlingResource.setIdleState(false)
-          connectToBroker(mqttConnectionConfiguration)
-        } finally {
-          mqttConnectionIdlingResource.setIdleState(true)
-        }
-      }
-
-  override fun checkConnection(): Boolean {
-    return mqttClientAndConfiguration?.mqttClient?.run {
-      var success = false
-      val token =
-          checkPing(
-              null,
-              object : IMqttActionListener {
-                override fun onSuccess(asyncActionToken: IMqttToken?) {
-                  success = true
-                }
-
-                override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                  success = false
-                }
-              })
-      if (token != null) {
-        token.waitForCompletion()
-      } else {
-        Timber.w("MQTT checkPing token was null")
-      }
-      return success
-    } ?: false
+    return connect(config)
   }
 
-  class NotConnectedException : Exception()
+  override fun checkConnection(): Boolean = client?.state?.isConnected ?: false
 
-  data class MqttClientAndConfiguration(
-      val mqttClient: MqttAsyncClient,
-      val mqttConnectionConfiguration: MqttConnectionConfiguration
-  )
+  class NotConnectedException : Exception()
 }
 
-/**
- * Wrapper around [Semaphore.withPermit] that logs when the lock is acquired and released
- *
- * @param label
- * @param function
- * @return
- * @receiver
- */
-private suspend fun <T> Semaphore.withPermitLogged(label: String, function: suspend () -> T): T {
-  return also {
-        Timber.v("Waiting for lock. label=$label available permits = ${it.availablePermits}")
-      }
-      .withPermit {
-        Timber.v("lock acquired label=$label")
-        try {
-          function()
-        } catch (e: Exception) {
-          Timber.e(e, "BOO")
-          throw e
-        } finally {
-          Timber.v("lock released label=$label")
-        }
-      }
+/** Bridges a [CompletableFuture] to a cancellable coroutine without an extra dependency. */
+private suspend fun <T> CompletableFuture<T>.await(): T = suspendCancellableCoroutine { cont ->
+  whenComplete { value, error ->
+    if (error != null) cont.resumeWithException(error) else cont.resume(value)
+  }
+  cont.invokeOnCancellation { cancel(true) }
 }

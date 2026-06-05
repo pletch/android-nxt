@@ -47,7 +47,13 @@ These settings apply only when using MQTT mode (`mode=0`).
 - **Type**: Boolean
 - **Default**: `false`
 - **MQTT**: ✓ | **HTTP**: ✗
-- **Description**: Enable WebSocket transport for MQTT connection instead of raw TCP.
+- **Description**: Enable WebSocket transport for MQTT connection instead of raw TCP. Combined with `tls`, this uses `wss`.
+
+### `wsPath`
+- **Type**: String
+- **Default**: `/mqtt`
+- **MQTT**: ✓ | **HTTP**: ✗
+- **Description**: Path of the broker's MQTT-over-WebSocket endpoint, used when `ws` is enabled (e.g. `/mqtt`, `/ws`). Set this to match how your broker (or reverse proxy) exposes the WebSocket listener.
 
 ### `keepalive`
 - **Type**: Integer (seconds)

@@ -84,6 +84,7 @@ interface DefaultsProvider {
       Preferences::userDeclinedEnableNotificationPermissions -> false
       Preferences::username -> ""
       Preferences::ws -> false
+      Preferences::wsPath -> "/mqtt"
       else -> {
         throw Exception("No default defined for ${property.name}")
       }
