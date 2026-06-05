@@ -62,7 +62,9 @@ data class MqttConnectionConfiguration(
             .identifier(clientId)
             .serverHost(host)
             .serverPort(port)
-            .automaticReconnectWithDefaultConfig()
+            // Reconnection is owned by the endpoint (scheduler.scheduleMqttReconnect), not the
+            // HiveMQ client: its built-in auto-reconnect retries a cached CONNECT, which deadlocks
+            // credential changes and keeps using stale credentials.
             .addConnectedListener(connectedListener)
             .addDisconnectedListener(disconnectedListener)
     if (tls) {
