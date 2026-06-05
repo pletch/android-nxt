@@ -174,6 +174,20 @@ class ParserTest {
   }
 
   @Test
+  fun `Parser can deserialize a location message with fractional tst and created_at`() {
+    val parser = Parser(encryptionProvider)
+    // Some clients (and Recorder republishes) emit fractional epoch seconds, which a strict Long
+    // decode rejected, leaving the message to fall back to MessageUnknown.
+    val input =
+        """{"_type":"location","created_at":1780657806.4734333,"lat":39.9661489,"lon":-86.0766892,"tid":"jp","tst":1780657806.4734333}"""
+    val messageBase = parser.fromJson(input)
+    assertEquals(MessageLocation::class.java, messageBase.javaClass)
+    val message = messageBase as MessageLocation
+    assertEquals(1780657806L, message.timestamp)
+    assertEquals(1780657806L, message.createdAt.epochSeconds)
+  }
+
+  @Test
   fun `a location message with a timer trigger can be parsed`() {
 
     val parser = Parser(encryptionProvider)

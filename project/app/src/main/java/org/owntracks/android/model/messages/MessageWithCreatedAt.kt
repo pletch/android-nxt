@@ -34,6 +34,8 @@ object InstantEpochSecondsSerializer : KSerializer<Instant> {
     encoder.encodeLong(value.epochSeconds)
   }
 
+  // Decode as Double then truncate: some clients send fractional epoch seconds (e.g. 1.78e9.47),
+  // which a strict decodeLong() rejects. decodeDouble() accepts both integer and float literals.
   override fun deserialize(decoder: Decoder): Instant =
-      Instant.fromEpochSeconds(decoder.decodeLong())
+      Instant.fromEpochSeconds(decoder.decodeDouble().toLong())
 }

@@ -8,6 +8,7 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
@@ -36,8 +37,8 @@ object MessageLocationDeserializer : KSerializer<MessageLocation> {
       errors.add("missing both 'tid' and 'topic' (at least one required)")
     }
 
-    // Check for zero timestamp
-    val tst = element["tst"]?.jsonPrimitive?.longOrNull
+    // Check for zero timestamp (tolerate fractional values some clients send, e.g. 0.0)
+    val tst = element["tst"]?.jsonPrimitive?.let { it.longOrNull ?: it.doubleOrNull?.toLong() }
     if (tst == 0L) {
       errors.add("'tst' (timestamp) must be non-zero")
     }

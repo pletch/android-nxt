@@ -48,6 +48,18 @@ object LenientIntSerializer : JsonTransformingSerializer<Int>(Int.serializer()) 
       }
 }
 
+/**
+ * Accepts both integer and float JSON values for Long fields (some clients send fractional `tst`).
+ */
+object LenientLongSerializer : JsonTransformingSerializer<Long>(Long.serializer()) {
+  override fun transformDeserialize(element: JsonElement): JsonElement =
+      if (element is JsonPrimitive && element.content != "null" && element.doubleOrNull != null) {
+        JsonPrimitive(element.doubleOrNull!!.toLong())
+      } else {
+        element
+      }
+}
+
 @OptIn(ExperimentalSerializationApi::class)
 @SuppressLint("UnsafeOptInUsageError")
 @Serializable
@@ -92,7 +104,7 @@ open class MessageLocation(
 
   @SerialName("cog") @Serializable(with = LenientIntSerializer::class) var bearing = 0
 
-  @SerialName("tst") var timestamp: Long = 0
+  @SerialName("tst") @Serializable(with = LenientLongSerializer::class) var timestamp: Long = 0
 
   @SerialName("m") var monitoringMode: MonitoringMode? = null
 
