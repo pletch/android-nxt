@@ -162,6 +162,13 @@ internal constructor(
       Timber.w("unable to update marker for $contact. no location")
       return
     }
+    // Drop markers for contacts whose last fix is too old (opt-in). Re-evaluated on every marker
+    // reconcile, so a contact that goes stale while the map is open is removed on the next resync.
+    if (viewModel.isContactStale(contact)) {
+      Timber.v("hiding stale marker for contact: ${contact.id}")
+      removeMarkerFromMap(contact.id)
+      return
+    }
     Timber.v("updating marker for contact: ${contact.id}")
     lifecycleScope.launch {
       contactImageBindingAdapter.run {
