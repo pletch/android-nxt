@@ -60,6 +60,12 @@
             app:key="autoMonitoringByActivity"
             app:summary="@string/preferencesAutoMonitoringByActivitySummary"
             app:title="@string/preferencesAutoMonitoringByActivity" />
+        <androidx.preference.SwitchPreferenceCompat
+            app:dependency="autoMonitoringByActivity"
+            app:iconSpaceReserved="false"
+            app:key="boostLocatorWhileDriving"
+            app:summary="@string/preferencesBoostLocatorWhileDrivingSummary"
+            app:title="@string/preferencesBoostLocatorWhileDriving" />
         <Preference
             android:icon="@drawable/ic_outline_info_24"
             app:iconSpaceReserved="true"

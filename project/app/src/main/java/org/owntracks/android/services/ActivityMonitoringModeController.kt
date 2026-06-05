@@ -11,18 +11,22 @@ import timber.log.Timber
 
 enum class DetectedActivityChange {
   ON_FOOT,
-  NOT_ON_FOOT
+  IN_VEHICLE,
+  STILL
 }
 
 /**
  * Decision engine for activity-triggered adaptive monitoring
  * ([Preferences.autoMonitoringByActivity]).
  *
- * On on-foot activity it sets the [Preferences.locatorBoostedByActivity] flag, which the location
- * request reads (via [effectiveLocatorSettings]) to boost the locator to high accuracy without
- * changing the user's stored config. Hysteresis is fast-in / slow-out: boost immediately, but
- * revert only after a sustained still period of [Preferences.activityRevertDelaySeconds]. A manual
- * monitoring-mode change clears the boost and suppresses it until the next still -> on-foot cycle.
+ * On an active transition it sets a high-accuracy boost flag the location request reads (via
+ * [effectiveLocatorSettings]) without changing the user's stored config: on foot ->
+ * [Preferences.locatorBoostedByActivity] (fixed on-foot interval); driving ->
+ * [Preferences.locatorBoostedByDriving] (speed-tiered interval, see [DrivingSpeedTier]). The two
+ * are mutually exclusive. Hysteresis is fast-in / slow-out: boost immediately, but revert only
+ * after a sustained still period of [Preferences.activityRevertDelaySeconds]. A manual
+ * monitoring-mode change clears the boost and suppresses it until the next clean still -> active
+ * cycle.
  *
  * Entry points are `@Synchronized`: a remote `setConfiguration` change can arrive on a background
  * thread while transitions are handled on the main thread.
@@ -35,67 +39,86 @@ class ActivityMonitoringModeController(
   private var revertJob: Job? = null
 
   private var suppressedByManualOverride = false
-  private var sawNotOnFootSinceOverride = false
+  private var sawStillSinceOverride = false
 
   /**
-   * Clears a boost left stale by a previous process (e.g. killed mid-walk) so it can't drain power.
+   * Clears a boost left stale by a previous process (e.g. killed mid-trip) so it can't drain power.
    */
   @Synchronized
   fun onServiceStart() {
-    if (preferences.locatorBoostedByActivity) {
+    if (preferences.locatorBoostedByActivity || preferences.locatorBoostedByDriving) {
       Timber.i("Clearing stale activity locator boost on service start")
-      preferences.locatorBoostedByActivity = false
+      clearBoost()
     }
   }
 
   @Synchronized
   fun onActivityChange(change: DetectedActivityChange) {
     when (change) {
-      DetectedActivityChange.ON_FOOT -> onFootDetected()
-      DetectedActivityChange.NOT_ON_FOOT -> notOnFootDetected()
+      DetectedActivityChange.ON_FOOT -> onActiveDetected(onFoot = true)
+      DetectedActivityChange.IN_VEHICLE -> onActiveDetected(onFoot = false)
+      DetectedActivityChange.STILL -> stillDetected()
     }
   }
 
-  private fun onFootDetected() {
-    if (suppressedByManualOverride) {
-      if (!sawNotOnFootSinceOverride) {
-        Timber.d("On-foot detected but suppressed by manual override (no still seen yet); ignoring")
-        return
-      }
-      Timber.i("Clean still -> on-foot cycle seen; resuming activity-based monitoring")
-      suppressedByManualOverride = false
-    }
+  private fun onActiveDetected(onFoot: Boolean) {
+    if (!proceedWithActiveDetection()) return
     cancelPendingRevert()
-    if (preferences.locatorBoostedByActivity) {
-      Timber.d("On-foot detected; locator is already boosted")
-      return
-    }
     if (preferences.monitoring == MonitoringMode.Move) {
-      Timber.d("On-foot detected but already in Move mode; nothing to boost")
+      Timber.d("Active detected but already in Move mode; nothing to boost")
       return
     }
     if (!hasPreciseLocation()) {
       // Without Precise location, high accuracy is silently downgraded to coarse, so a boost gains
       // nothing.
-      Timber.i("On-foot detected but Precise location isn't granted; skipping locator boost")
+      Timber.i("Active detected but Precise location isn't granted; skipping locator boost")
       return
     }
-    Timber.i("On-foot detected; boosting locator to high accuracy")
-    preferences.locatorBoostedByActivity = true
+    // The two boosts are mutually exclusive; switching transport clears the other.
+    if (onFoot) {
+      if (preferences.locatorBoostedByDriving) preferences.locatorBoostedByDriving = false
+      if (preferences.locatorBoostedByActivity) {
+        Timber.d("On-foot detected; locator is already boosted")
+      } else {
+        Timber.i("On-foot detected; boosting locator to high accuracy")
+        preferences.locatorBoostedByActivity = true
+      }
+    } else {
+      if (preferences.locatorBoostedByActivity) preferences.locatorBoostedByActivity = false
+      if (preferences.locatorBoostedByDriving) {
+        Timber.d("Driving detected; locator is already boosted")
+      } else {
+        Timber.i("Driving detected; boosting locator to high accuracy (speed-tiered)")
+        preferences.locatorBoostedByDriving = true
+      }
+    }
   }
 
-  private fun notOnFootDetected() {
+  /** Returns whether to act on an active (on-foot / driving) detection given the override state. */
+  private fun proceedWithActiveDetection(): Boolean {
     if (suppressedByManualOverride) {
-      sawNotOnFootSinceOverride = true
-      Timber.d("Not-on-foot detected while suppressed; arming resume on the next on-foot")
+      if (!sawStillSinceOverride) {
+        Timber.d("Active detected but suppressed by manual override (no still yet); ignoring")
+        return false
+      }
+      Timber.i("Clean still -> active cycle seen; resuming activity-based monitoring")
+      suppressedByManualOverride = false
+    }
+    return true
+  }
+
+  private fun stillDetected() {
+    if (suppressedByManualOverride) {
+      sawStillSinceOverride = true
+      Timber.d("Still detected while suppressed; arming resume on the next active transition")
       return
     }
-    if (!preferences.locatorBoostedByActivity) {
-      Timber.d("Not-on-foot detected but locator wasn't boosted; nothing to revert")
+    if (!preferences.locatorBoostedByActivity && !preferences.locatorBoostedByDriving) {
+      Timber.d("Still detected but locator wasn't boosted; nothing to revert")
       return
     }
     val delaySeconds = preferences.activityRevertDelaySeconds
-    Timber.i("Not-on-foot detected; arming locator-boost revert in ${delaySeconds}s")
+    Timber.i("Still detected; arming locator-boost revert in ${delaySeconds}s")
     cancelPendingRevert()
     revertJob =
         scope.launch {
@@ -113,7 +136,7 @@ class ActivityMonitoringModeController(
 
   /**
    * The controller never changes [Preferences.monitoring] itself, so any change is the user's:
-   * clear the boost and back off until the next clean still -> on-foot cycle.
+   * clear the boost and back off until the next clean still -> active cycle.
    */
   @Synchronized
   fun onMonitoringModeChangedExternally(newMode: MonitoringMode) {
@@ -121,7 +144,7 @@ class ActivityMonitoringModeController(
     cancelPendingRevert()
     clearBoost()
     suppressedByManualOverride = true
-    sawNotOnFootSinceOverride = false
+    sawStillSinceOverride = false
   }
 
   @Synchronized
@@ -131,8 +154,12 @@ class ActivityMonitoringModeController(
 
   private fun clearBoost() {
     if (preferences.locatorBoostedByActivity) {
-      Timber.i("Reverting activity locator boost")
+      Timber.i("Reverting on-foot locator boost")
       preferences.locatorBoostedByActivity = false
+    }
+    if (preferences.locatorBoostedByDriving) {
+      Timber.i("Reverting driving locator boost")
+      preferences.locatorBoostedByDriving = false
     }
   }
 

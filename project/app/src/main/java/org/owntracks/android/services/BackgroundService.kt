@@ -123,12 +123,43 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
   @Inject @CoroutineScopes.IoDispatcher lateinit var ioDispatcher: CoroutineDispatcher
 
+  // The interval currently in effect for the driving boost (speed-tiered; see DrivingSpeedTier).
+  private var currentDrivingIntervalSeconds = DrivingSpeedTier.DEFAULT_INTERVAL_SECONDS
+
   private val callbackForReportType =
       mutableMapOf<MessageLocation.ReportType, Lazy<LocationCallbackWithReportType>>().apply {
         MessageLocation.ReportType.entries.forEach {
-          this[it] = lazy { LocationCallbackWithReportType(it, locationProcessor, lifecycleScope) }
+          this[it] = lazy {
+            LocationCallbackWithReportType(
+                it,
+                locationProcessor,
+                lifecycleScope,
+                // Only the continuous DEFAULT stream feeds the driving speed-tiering.
+                onLocation =
+                    if (it == MessageLocation.ReportType.DEFAULT) ::onDrivingLocationForTuning
+                    else { _ -> })
+          }
         }
       }
+
+  /**
+   * While the driving boost is active, re-tune the sampling interval from the fix's own speed: a
+   * longer interval at higher speed lets the GPS duty-cycle. Only re-issues the request on a band
+   * change (DrivingSpeedTier applies hysteresis), so steady driving doesn't churn it.
+   */
+  private fun onDrivingLocationForTuning(location: Location) {
+    if (!preferences.locatorBoostedByDriving || !location.hasSpeed()) return
+    val newInterval =
+        DrivingSpeedTier.intervalSecondsForSpeed(
+            DrivingSpeedTier.mpsToKmh(location.speed), currentDrivingIntervalSeconds)
+    if (newInterval != currentDrivingIntervalSeconds) {
+      Timber.d(
+          "Driving speed ${"%.0f".format(DrivingSpeedTier.mpsToKmh(location.speed))} km/h; " +
+              "re-tuning interval ${currentDrivingIntervalSeconds}s -> ${newInterval}s")
+      currentDrivingIntervalSeconds = newInterval
+      setupLocationRequest()
+    }
+  }
 
   private val ongoingNotification by lazy { OngoingNotification(this, preferences.monitoring) }
   private val notificationManagerCompat by lazy { NotificationManagerCompat.from(this) }
@@ -303,10 +334,17 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         // This comes from the gms ActivityRecognitionReceiver
         INTENT_ACTION_ACTIVITY_TRANSITION -> {
           if (preferences.autoMonitoringByActivity) {
-            intent.getBooleanArrayExtra(EXTRA_ACTIVITY_ON_FOOT_FLAGS)?.forEach { onFoot ->
-              activityMonitoringModeController.onActivityChange(
-                  if (onFoot) DetectedActivityChange.ON_FOOT
-                  else DetectedActivityChange.NOT_ON_FOOT)
+            intent.getIntArrayExtra(EXTRA_ACTIVITY_CHANGE_ORDINALS)?.forEach { ordinal ->
+              val change = DetectedActivityChange.entries[ordinal]
+              // When driving boost is off, treat getting in a vehicle like becoming still (revert).
+              val effective =
+                  if (change == DetectedActivityChange.IN_VEHICLE &&
+                      !preferences.boostLocatorWhileDriving) {
+                    DetectedActivityChange.STILL
+                  } else {
+                    change
+                  }
+              activityMonitoringModeController.onActivityChange(effective)
             }
           }
           return
@@ -582,12 +620,18 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
               preferences.moveModeLocatorInterval,
               preferences.locatorBoostedByActivity,
               preferences.activityOnFootLocatorInterval,
-              preferences.activityOnFootLocatorDisplacement)
+              preferences.activityOnFootLocatorDisplacement,
+              preferences.locatorBoostedByDriving,
+              currentDrivingIntervalSeconds)
       val interval = Duration.ofSeconds(settings.intervalSeconds.toLong())
       val smallestDisplacement = settings.smallestDisplacement?.toFloat()
       val priority = settings.priority
+      // Peg the fastest interval to the interval while driving so the GPS can duty-cycle rather
+      // than
+      // sampling continuously to evaluate displacement.
       val fastestInterval =
-          if (preferences.pegLocatorFastestIntervalToInterval) {
+          if (preferences.pegLocatorFastestIntervalToInterval ||
+              preferences.locatorBoostedByDriving) {
             interval
           } else {
             Duration.ofSeconds(1)
@@ -664,6 +708,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             Preferences::notificationHigherPriority.name,
             Preferences::locatorPriority.name,
             Preferences::locatorBoostedByActivity.name,
+            Preferences::locatorBoostedByDriving.name,
             Preferences::activityOnFootLocatorInterval.name,
             Preferences::activityOnFootLocatorDisplacement.name)
     if (propertiesWeCareAbout
@@ -739,7 +784,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     const val INTENT_ACTION_ACTIVITY_TRANSITION = "org.owntracks.android.ACTIVITY_TRANSITION"
     // BooleanArray extra on INTENT_ACTION_ACTIVITY_TRANSITION: one flag per detected transition,
     // true = entered an on-foot activity, false = entered still/in-vehicle.
-    const val EXTRA_ACTIVITY_ON_FOOT_FLAGS = "activityOnFootFlags"
+    const val EXTRA_ACTIVITY_CHANGE_ORDINALS = "activityChangeOrdinals"
     private const val INTENT_ACTION_CLEAR_NOTIFICATIONS =
         "org.owntracks.android.CLEAR_EVENT_NOTIFICATIONS"
     private const val INTENT_ACTION_CLEAR_CONTACTS = "org.owntracks.android.CLEAR_CONTACTS"
@@ -754,7 +799,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   class LocationCallbackWithReportType(
       private val reportType: MessageLocation.ReportType,
       private val locationProcessor: LocationProcessor,
-      private val lifecycleCoroutineScope: LifecycleCoroutineScope
+      private val lifecycleCoroutineScope: LifecycleCoroutineScope,
+      private val onLocation: (Location) -> Unit = {}
   ) : LocationCallback {
 
     override fun onLocationAvailability(locationAvailability: LocationAvailability) {
@@ -763,6 +809,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
     override fun onLocationResult(locationResult: LocationResult) {
       Timber.d("Location result received: $locationResult")
+      onLocation(locationResult.lastLocation)
       onLocationChanged(locationResult.lastLocation, reportType)
     }
 

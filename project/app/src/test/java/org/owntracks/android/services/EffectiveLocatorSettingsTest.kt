@@ -11,6 +11,8 @@ class EffectiveLocatorSettingsTest {
       monitoring: MonitoringMode,
       boosted: Boolean,
       locatorPriority: LocatorPriority? = null,
+      boostedByDriving: Boolean = false,
+      drivingIntervalSeconds: Int = 18,
   ) =
       effectiveLocatorSettings(
           monitoring = monitoring,
@@ -20,7 +22,9 @@ class EffectiveLocatorSettingsTest {
           moveModeLocatorInterval = 10,
           boostedByActivity = boosted,
           activityOnFootLocatorInterval = 25,
-          activityOnFootLocatorDisplacement = 30)
+          activityOnFootLocatorDisplacement = 30,
+          boostedByDriving = boostedByDriving,
+          drivingIntervalSeconds = drivingIntervalSeconds)
 
   @Test
   fun `significant mode uses balanced accuracy with the configured interval and displacement`() {
@@ -73,6 +77,32 @@ class EffectiveLocatorSettingsTest {
   fun `the boost is ignored in move mode`() {
     val s = compute(MonitoringMode.Move, boosted = true)
     assertEquals(LocatorPriority.HighAccuracy, s.priority)
+    assertEquals(10, s.intervalSeconds)
+    assertNull(s.smallestDisplacement)
+  }
+
+  @Test
+  fun `the driving boost uses high accuracy with the speed-tiered interval and displacement floor`() {
+    val s = compute(MonitoringMode.Significant, boosted = false, boostedByDriving = true)
+    assertEquals(LocatorPriority.HighAccuracy, s.priority)
+    assertEquals(18, s.intervalSeconds)
+    assertEquals(DRIVING_BOOST_DISPLACEMENT_METRES, s.smallestDisplacement)
+  }
+
+  @Test
+  fun `the on-foot boost takes precedence over driving when both are somehow set`() {
+    val s =
+        compute(
+            MonitoringMode.Significant,
+            boosted = true,
+            boostedByDriving = true,
+            drivingIntervalSeconds = 22)
+    assertEquals(25, s.intervalSeconds) // on-foot interval, not the driving interval
+  }
+
+  @Test
+  fun `the driving boost is ignored in move mode`() {
+    val s = compute(MonitoringMode.Move, boosted = false, boostedByDriving = true)
     assertEquals(10, s.intervalSeconds)
     assertNull(s.smallestDisplacement)
   }

@@ -54,7 +54,7 @@ class ActivityMonitoringModeControllerTest {
     val controller = ActivityMonitoringModeController(preferences, backgroundScope)
 
     controller.onActivityChange(DetectedActivityChange.ON_FOOT)
-    controller.onActivityChange(DetectedActivityChange.NOT_ON_FOOT)
+    controller.onActivityChange(DetectedActivityChange.STILL)
 
     advanceTimeBy((REVERT_DELAY_SECONDS - 1) * 1000L)
     runCurrent()
@@ -71,7 +71,7 @@ class ActivityMonitoringModeControllerTest {
     val controller = ActivityMonitoringModeController(preferences, backgroundScope)
 
     controller.onActivityChange(DetectedActivityChange.ON_FOOT)
-    controller.onActivityChange(DetectedActivityChange.NOT_ON_FOOT)
+    controller.onActivityChange(DetectedActivityChange.STILL)
     advanceTimeBy((REVERT_DELAY_SECONDS / 2) * 1000L)
     controller.onActivityChange(DetectedActivityChange.ON_FOOT) // e.g. a pause at a crosswalk
     advanceTimeBy(REVERT_DELAY_SECONDS * 1000L)
@@ -149,7 +149,7 @@ class ActivityMonitoringModeControllerTest {
         controller.onActivityChange(DetectedActivityChange.ON_FOOT) // no still yet -> ignored
         assertFalse(preferences.locatorBoostedByActivity)
 
-        controller.onActivityChange(DetectedActivityChange.NOT_ON_FOOT) // the "still" half
+        controller.onActivityChange(DetectedActivityChange.STILL) // the "still" half
         controller.onActivityChange(DetectedActivityChange.ON_FOOT) // resume + boost
 
         assertTrue(preferences.locatorBoostedByActivity)
@@ -160,7 +160,7 @@ class ActivityMonitoringModeControllerTest {
     val controller = ActivityMonitoringModeController(preferences, backgroundScope)
 
     controller.onActivityChange(DetectedActivityChange.ON_FOOT)
-    controller.onActivityChange(DetectedActivityChange.NOT_ON_FOOT) // revert pending
+    controller.onActivityChange(DetectedActivityChange.STILL) // revert pending
 
     preferences.monitoring = MonitoringMode.Quiet
     controller.onMonitoringModeChangedExternally(MonitoringMode.Quiet) // clears + cancels revert
@@ -169,6 +169,46 @@ class ActivityMonitoringModeControllerTest {
     runCurrent()
 
     assertFalse(preferences.locatorBoostedByActivity)
+  }
+
+  @Test
+  fun `in-vehicle detection sets the driving boost flag, not the on-foot one`() = runTest {
+    val controller = ActivityMonitoringModeController(preferences, backgroundScope)
+
+    controller.onActivityChange(DetectedActivityChange.IN_VEHICLE)
+    runCurrent()
+
+    assertTrue(preferences.locatorBoostedByDriving)
+    assertFalse(preferences.locatorBoostedByActivity)
+    assertConfiguredLocatorSettingsUntouched()
+  }
+
+  @Test
+  fun `switching from walking to driving moves the boost between flags`() = runTest {
+    val controller = ActivityMonitoringModeController(preferences, backgroundScope)
+
+    controller.onActivityChange(DetectedActivityChange.ON_FOOT)
+    runCurrent()
+    assertTrue(preferences.locatorBoostedByActivity)
+
+    controller.onActivityChange(DetectedActivityChange.IN_VEHICLE)
+    runCurrent()
+    assertFalse(preferences.locatorBoostedByActivity)
+    assertTrue(preferences.locatorBoostedByDriving)
+  }
+
+  @Test
+  fun `becoming still reverts the driving boost after the delay`() = runTest {
+    val controller = ActivityMonitoringModeController(preferences, backgroundScope)
+
+    controller.onActivityChange(DetectedActivityChange.IN_VEHICLE)
+    controller.onActivityChange(DetectedActivityChange.STILL)
+    assertTrue(preferences.locatorBoostedByDriving) // still boosted during the slow-out window
+
+    advanceTimeBy(REVERT_DELAY_SECONDS * 1000L + 1000L)
+    runCurrent()
+
+    assertFalse(preferences.locatorBoostedByDriving)
   }
 
   companion object {
