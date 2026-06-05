@@ -26,6 +26,7 @@ import org.owntracks.android.preferences.types.MqttProtocolLevel
 import org.owntracks.android.preferences.types.MqttQos
 import org.owntracks.android.preferences.types.ReverseGeocodeProvider
 import org.owntracks.android.preferences.types.StringMaxTwoAlphaNumericChars
+import org.owntracks.android.preferences.types.UnitOfMeasure
 import org.owntracks.android.test.SimpleIdlingResource
 import org.owntracks.android.ui.map.MapLayerStyle
 import timber.log.Timber
@@ -294,6 +295,8 @@ constructor(
   @Preference(exportModeHttp = false) var tlsClientCrt: String by preferencesStore
 
   @Preference var tid: StringMaxTwoAlphaNumericChars by preferencesStore
+
+  @Preference var units: UnitOfMeasure by preferencesStore
 
   @Preference(exportModeMqtt = false) var url: String by preferencesStore
 

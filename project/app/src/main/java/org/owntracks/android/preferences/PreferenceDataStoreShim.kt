@@ -7,6 +7,7 @@ import org.owntracks.android.preferences.types.AppTheme
 import org.owntracks.android.preferences.types.ConnectionMode
 import org.owntracks.android.preferences.types.ReverseGeocodeProvider
 import org.owntracks.android.preferences.types.StringMaxTwoAlphaNumericChars
+import org.owntracks.android.preferences.types.UnitOfMeasure
 
 /**
  * The whole reason this exists is to give an [androidx.preference.PreferenceFragmentCompat] a thing
@@ -45,6 +46,7 @@ class PreferenceDataStoreShim @Inject constructor(private val preferences: Prefe
     val stringPreferenceValue =
         when (val preferenceValue = key?.run(preferences::getPreferenceByName) ?: defValue) {
           is ReverseGeocodeProvider -> preferenceValue.name
+          is UnitOfMeasure -> preferenceValue.name
           is StringMaxTwoAlphaNumericChars -> preferenceValue.toString()
           else -> preferenceValue
         }

@@ -14,4 +14,9 @@
         <item>Always in dark theme</item>
         <item>Same as device</item>
     </string-array>
+    <string-array name="units">
+        <item>@string/preferencesUnitsDefault</item>
+        <item>@string/preferencesUnitsMetric</item>
+        <item>@string/preferencesUnitsImperial</item>
+    </string-array>
 </resources>
