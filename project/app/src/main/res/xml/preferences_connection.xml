@@ -52,6 +52,13 @@
             android:key="ws"
             android:title="@string/preferencesWebsocket"
             app:iconSpaceReserved="false" />
+        <EditTextPreference
+            android:key="wsPath"
+            android:title="@string/preferencesWebsocketPath"
+            app:dependency="ws"
+            app:dialogMessage="@string/preferencesWebsocketPathDialog"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
     <PreferenceCategory
         app:iconSpaceReserved="false"

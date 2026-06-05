@@ -2,6 +2,10 @@
 
 ## Version 2.5.10
 
+### Changes
+
+- Replaced the unmaintained Eclipse Paho MQTT client with the HiveMQ MQTT client. This improves connection reliability — particularly over WebSockets — with first-class WebSocket support and automatic reconnection. The MQTT-over-WebSocket endpoint path is now configurable (`wsPath`, default `/mqtt`), so brokers that don't serve at the root path work. Note: MQTT 3.1 is no longer supported (the client uses MQTT 3.1.1); the `mqttProtocolLevel` preference is otherwise unchanged.
+
 ### Bug fixes
 
 - Fix blocking file I/O on the main thread when loading a configuration from a content:// URI, which could cause ANR on slow storage (#2151). Also fixes potentially truncated reads and an uncaught IOException in that path.

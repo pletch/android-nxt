@@ -256,6 +256,8 @@ To allow this, please enable Location in the device settings."</string>
     <string name="preferencesUrlValidationError">"Invalid HTTP URL"</string>
     <string name="preferencesUsername">"Username"</string>
     <string name="preferencesWebsocket">"Use WebSockets"</string>
+    <string name="preferencesWebsocketPath">"WebSocket path"</string>
+    <string name="preferencesWebsocketPathDialog">"Path of the broker\'s MQTT-over-WebSocket endpoint (e.g. /mqtt)"</string>
     <string name="publish">"Report Location"</string>
     <string name="radius">"Radius (m)"</string>
     <string name="reconnect">"Reconnect"</string>
