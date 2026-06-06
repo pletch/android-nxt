@@ -10,6 +10,8 @@
             type="org.owntracks.android.ui.map.MapViewModel" />
 
         <import type="android.view.View" />
+
+        <import type="org.owntracks.android.support.TimestampFormatter" />
     </data>
 
     <androidx.drawerlayout.widget.DrawerLayout
@@ -192,6 +194,13 @@
                     app:icon="@{@drawable/outline_location_on_24}"
                     app:textValue="@{vm.currentContact.latLng}"
                     app:title="@{@string/contactDetailsCoordinates}" />
+
+                <include
+                    layout="@layout/ui_contactsheet_parameter"
+                    android:visibility="@{vm.currentContact.createdAtTimestamp > 0 ? View.VISIBLE : View.GONE}"
+                    app:icon="@{@drawable/ic_baseline_schedule_24}"
+                    app:textValue="@{TimestampFormatter.formatTimestamp(vm.currentContact.createdAtTimestamp)}"
+                    app:title="@{@string/contactDetailsReportedAt}" />
 
                 <RelativeLayout
                     android:layout_marginBottom="8dp"

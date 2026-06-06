@@ -41,6 +41,16 @@ class Contact(id: String) : BaseObservable() {
       notifyPropertyChanged(BR.locationTimestamp)
     }
 
+  // When the message was created/sent by the contact (epoch seconds), vs locationTimestamp which is
+  // when the fix was measured. These differ when a device re-sends a stale fix (e.g. a periodic
+  // ping while stationary).
+  @get:Bindable
+  var createdAtTimestamp: Long = 0
+    private set(value) {
+      field = value
+      notifyPropertyChanged(BR.createdAtTimestamp)
+    }
+
   @get:Bindable
   var face: String? = null
     private set(value) {
@@ -57,6 +67,7 @@ class Contact(id: String) : BaseObservable() {
     if (locationTimestamp > messageLocation.timestamp) return false
     Timber.v("update contact:$id, tst:${messageLocation.timestamp}", id, messageLocation.timestamp)
     locationTimestamp = messageLocation.timestamp
+    createdAtTimestamp = messageLocation.createdAt.epochSeconds
     if (latLng != messageLocation.toLatLng()) {
       Timber.v("Contact ${this.id} has moved to $latLng")
       latLng = messageLocation.toLatLng()
