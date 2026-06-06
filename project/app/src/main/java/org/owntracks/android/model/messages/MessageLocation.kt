@@ -86,7 +86,7 @@ open class MessageLocation(
 
   @SerialName("t") var trigger: ReportType = ReportType.DEFAULT
 
-  @SerialName("batt") var battery: Int? = null
+  @SerialName("batt") @Serializable(with = LenientIntSerializer::class) var battery: Int? = null
 
   @SerialName("bs") var batteryStatus: BatteryStatus? = null
 
