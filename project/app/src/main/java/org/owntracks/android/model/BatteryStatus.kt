@@ -7,6 +7,10 @@ import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 @Serializable(with = BatteryStatus.BatteryStatusSerializer::class)
 enum class BatteryStatus(val value: Int) {
@@ -25,8 +29,16 @@ enum class BatteryStatus(val value: Int) {
     }
 
     override fun deserialize(decoder: Decoder): BatteryStatus {
-      val value = decoder.decodeInt()
-      return entries.first { it.value == value }
+      // Tolerate a float-encoded value (the iOS app emits e.g. "bs":2.0) and unknown codes, so a
+      // stray battery status can't drop the whole location message to MessageUnknown.
+      val value =
+          if (decoder is JsonDecoder) {
+            val primitive = decoder.decodeJsonElement().jsonPrimitive
+            primitive.intOrNull ?: primitive.doubleOrNull?.toInt() ?: 0
+          } else {
+            decoder.decodeInt()
+          }
+      return entries.firstOrNull { it.value == value } ?: UNKNOWN
     }
   }
 }
