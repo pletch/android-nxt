@@ -146,8 +146,8 @@ To allow this, please enable Location in the device settings."</string>
     <string name="preferencesActivityOnFootLocatorIntervalDialog">"How often locations are requested while walking or running (seconds)"</string>
     <string name="preferencesActivityOnFootLocatorIntervalSummary">"Location interval while on foot"</string>
     <string name="preferencesActivityRevertDelay">"Activity revert delay"</string>
-    <string name="preferencesActivityRevertDelayDialog">"How many seconds you must be stationary before monitoring reverts out of Move mode (seconds)"</string>
-    <string name="preferencesActivityRevertDelaySummary">"Seconds to stay in Move mode after you stop moving before reverting"</string>
+    <string name="preferencesActivityRevertDelayDialog">"How many seconds you must be stationary before the locator reverts from the activity high-accuracy boost back to your normal settings (seconds)"</string>
+    <string name="preferencesActivityRevertDelaySummary">"Seconds to stay boosted to high accuracy after you stop moving before reverting"</string>
     <string name="preferencesAdvanced">"Advanced"</string>
     <string name="preferencesAdvancedAutostartWarning">"This version of Android restricts OwnTracks from receiving locations when automatically started on device boot until the app is opened."</string>
     <string name="preferencesAdvancedOpencagePrivacy"><a href="%s">OpenCage Privacy Policy</a></string>
