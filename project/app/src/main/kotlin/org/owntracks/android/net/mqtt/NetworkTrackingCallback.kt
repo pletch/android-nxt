@@ -9,7 +9,7 @@ import timber.log.Timber
 class NetworkTrackingCallback(
     private val endpointState: () -> EndpointState,
     private val reconnectFunction: () -> Unit,
-    private val disconnectFunction: () -> Unit
+    private val onCurrentNetworkLost: () -> Unit
 ) : ConnectivityManager.NetworkCallback() {
   var justRegistered = true
     private set
@@ -54,10 +54,12 @@ class NetworkTrackingCallback(
 
   override fun onLost(network: Network) {
     if (network == currentNetwork) {
-      // The network we were actually using is gone — disconnect.
-      Timber.v("Current network $network lost, disconnecting")
+      // The network we were actually using is gone. Recover (reconnect) rather than just
+      // disconnecting: if we only dropped here and no further onAvailable arrived (e.g. a transient
+      // cellular blip while driving), the client would stay stranded in DISCONNECTED forever.
+      Timber.v("Current network $network lost, recovering")
       currentNetwork = null
-      disconnectFunction()
+      onCurrentNetworkLost()
     } else {
       // A non-current network was lost (e.g. the old wifi after a wifi→mobile switch).
       // onAvailable for the new network already triggered a reconnect; skip disconnect
