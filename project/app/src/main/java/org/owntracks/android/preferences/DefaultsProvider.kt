@@ -17,6 +17,7 @@ interface DefaultsProvider {
     return when (property) {
       Preferences::activityOnFootLocatorDisplacement -> 30
       Preferences::activityOnFootLocatorInterval -> 25
+      Preferences::activityEntryDelaySeconds -> 0
       Preferences::activityRevertDelaySeconds -> 180
       Preferences::autoMonitoringByActivity -> false
       Preferences::boostLocatorWhileDriving -> true

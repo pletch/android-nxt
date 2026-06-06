@@ -153,6 +153,9 @@ To allow this, please enable Location in the device settings."</string>
     <string name="preferencesActivityOnFootLocatorInterval">"On-foot location interval"</string>
     <string name="preferencesActivityOnFootLocatorIntervalDialog">"How often locations are requested while walking or running (seconds)"</string>
     <string name="preferencesActivityOnFootLocatorIntervalSummary">"Location interval while on foot"</string>
+    <string name="preferencesActivityEntryDelay">"Activity entry delay"</string>
+    <string name="preferencesActivityEntryDelayDialog">"How many seconds you must stay active before the locator boosts to high accuracy. A short delay filters out brief activities (like a quick walk across the house). 0 boosts immediately (seconds)"</string>
+    <string name="preferencesActivityEntryDelaySummary">"Seconds of sustained activity before boosting to high accuracy (0 = immediate)"</string>
     <string name="preferencesActivityRevertDelay">"Activity revert delay"</string>
     <string name="preferencesActivityRevertDelayDialog">"How many seconds you must be stationary before the locator reverts from the activity high-accuracy boost back to your normal settings (seconds)"</string>
     <string name="preferencesActivityRevertDelaySummary">"Seconds to stay boosted to high accuracy after you stop moving before reverting"</string>

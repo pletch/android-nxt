@@ -211,8 +211,54 @@ class ActivityMonitoringModeControllerTest {
     assertFalse(preferences.locatorBoostedByDriving)
   }
 
+  @Test
+  fun `with an entry delay the boost waits for sustained activity`() = runTest {
+    preferences.activityEntryDelaySeconds = ENTRY_DELAY_SECONDS
+    val controller = ActivityMonitoringModeController(preferences, backgroundScope)
+
+    controller.onActivityChange(DetectedActivityChange.ON_FOOT)
+    runCurrent()
+    assertFalse(preferences.locatorBoostedByActivity) // dwell not elapsed yet
+
+    advanceTimeBy(ENTRY_DELAY_SECONDS * 1000L + 1000L)
+    runCurrent()
+    assertTrue(preferences.locatorBoostedByActivity)
+  }
+
+  @Test
+  fun `a brief activity that stops before the entry delay never boosts`() = runTest {
+    preferences.activityEntryDelaySeconds = ENTRY_DELAY_SECONDS
+    val controller = ActivityMonitoringModeController(preferences, backgroundScope)
+
+    controller.onActivityChange(DetectedActivityChange.ON_FOOT) // e.g. a walk to the kitchen
+    advanceTimeBy(10_000L) // less than the entry delay
+    controller.onActivityChange(DetectedActivityChange.STILL) // stopped before the dwell elapsed
+
+    advanceTimeBy(ENTRY_DELAY_SECONDS * 1000L + 1000L)
+    runCurrent()
+    assertFalse(preferences.locatorBoostedByActivity) // never boosted
+  }
+
+  @Test
+  fun `entry delay does not re-apply once boosted - transport switch is immediate`() = runTest {
+    preferences.activityEntryDelaySeconds = ENTRY_DELAY_SECONDS
+    val controller = ActivityMonitoringModeController(preferences, backgroundScope)
+
+    controller.onActivityChange(DetectedActivityChange.ON_FOOT)
+    advanceTimeBy(ENTRY_DELAY_SECONDS * 1000L + 1000L)
+    runCurrent()
+    assertTrue(preferences.locatorBoostedByActivity)
+
+    // Already boosted: switching to driving applies immediately, no second dwell.
+    controller.onActivityChange(DetectedActivityChange.IN_VEHICLE)
+    runCurrent()
+    assertFalse(preferences.locatorBoostedByActivity)
+    assertTrue(preferences.locatorBoostedByDriving)
+  }
+
   companion object {
     private const val REVERT_DELAY_SECONDS = 180
+    private const val ENTRY_DELAY_SECONDS = 30
     private const val BASE_INTERVAL = 60
     private const val BASE_DISPLACEMENT = 500
   }
