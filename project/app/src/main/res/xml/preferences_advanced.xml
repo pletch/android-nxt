@@ -94,6 +94,15 @@
             android:digits="0123456789"
             android:inputType="number"
             app:dependency="autoMonitoringByActivity"
+            app:dialogMessage="@string/preferencesActivityEntryDelayDialog"
+            app:iconSpaceReserved="false"
+            app:key="activityEntryDelaySeconds"
+            app:summary="@string/preferencesActivityEntryDelaySummary"
+            app:title="@string/preferencesActivityEntryDelay" />
+        <org.owntracks.android.support.widgets.EditIntegerPreference
+            android:digits="0123456789"
+            android:inputType="number"
+            app:dependency="autoMonitoringByActivity"
             app:dialogMessage="@string/preferencesActivityRevertDelayDialog"
             app:iconSpaceReserved="false"
             app:key="activityRevertDelaySeconds"

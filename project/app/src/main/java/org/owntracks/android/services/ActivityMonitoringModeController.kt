@@ -23,10 +23,11 @@ enum class DetectedActivityChange {
  * [effectiveLocatorSettings]) without changing the user's stored config: on foot ->
  * [Preferences.locatorBoostedByActivity] (fixed on-foot interval); driving ->
  * [Preferences.locatorBoostedByDriving] (speed-tiered interval, see [DrivingSpeedTier]). The two
- * are mutually exclusive. Hysteresis is fast-in / slow-out: boost immediately, but revert only
- * after a sustained still period of [Preferences.activityRevertDelaySeconds]. A manual
- * monitoring-mode change clears the boost and suppresses it until the next clean still -> active
- * cycle.
+ * are mutually exclusive. Hysteresis: boost only after an optional entry dwell
+ * ([Preferences.activityEntryDelaySeconds]; 0 = immediate) so brief bursts the Activity Recognition
+ * API reports don't flap the locator, and revert only after a sustained still period
+ * ([Preferences.activityRevertDelaySeconds]). A manual monitoring-mode change clears the boost and
+ * suppresses it until the next clean still -> active cycle.
  *
  * Entry points are `@Synchronized`: a remote `setConfiguration` change can arrive on a background
  * thread while transitions are handled on the main thread.
@@ -37,6 +38,7 @@ class ActivityMonitoringModeController(
     private val hasPreciseLocation: () -> Boolean = { true },
 ) {
   private var revertJob: Job? = null
+  private var entryJob: Job? = null
 
   private var suppressedByManualOverride = false
   private var sawStillSinceOverride = false
@@ -74,21 +76,51 @@ class ActivityMonitoringModeController(
       Timber.i("Active detected but Precise location isn't granted; skipping locator boost")
       return
     }
-    // The two boosts are mutually exclusive; switching transport clears the other.
+    val alreadyBoosted = preferences.locatorBoostedByActivity || preferences.locatorBoostedByDriving
+    val entryDelaySeconds = preferences.activityEntryDelaySeconds
+    if (alreadyBoosted || entryDelaySeconds <= 0) {
+      // Already high accuracy (just switch transport profile if needed), or no entry dwell set.
+      cancelPendingEntry()
+      applyBoost(onFoot)
+    } else {
+      // Gate fast-in behind a dwell: only boost once we've stayed active for the delay, so brief
+      // bursts the Activity Recognition API reports aggressively (e.g. a short walk to the kitchen)
+      // don't flap the locator. Going STILL before the dwell elapses cancels it.
+      Timber.i("Active detected; arming locator boost in ${entryDelaySeconds}s (entry dwell)")
+      cancelPendingEntry()
+      entryJob =
+          scope.launch {
+            delay(entryDelaySeconds.seconds)
+            onEntryDwellElapsed(onFoot)
+          }
+    }
+  }
+
+  @Synchronized
+  private fun onEntryDwellElapsed(onFoot: Boolean) {
+    entryJob = null
+    // State may have changed during the dwell (mode change, permission revoked).
+    if (preferences.monitoring == MonitoringMode.Move || !hasPreciseLocation()) return
+    Timber.i("Entry dwell elapsed; boosting locator to high accuracy")
+    applyBoost(onFoot)
+  }
+
+  /** Sets the appropriate boost flag; the two are mutually exclusive, so clear the other. */
+  private fun applyBoost(onFoot: Boolean) {
     if (onFoot) {
       if (preferences.locatorBoostedByDriving) preferences.locatorBoostedByDriving = false
       if (preferences.locatorBoostedByActivity) {
-        Timber.d("On-foot detected; locator is already boosted")
+        Timber.d("On-foot; locator is already boosted")
       } else {
-        Timber.i("On-foot detected; boosting locator to high accuracy")
+        Timber.i("Boosting locator to high accuracy (on foot)")
         preferences.locatorBoostedByActivity = true
       }
     } else {
       if (preferences.locatorBoostedByActivity) preferences.locatorBoostedByActivity = false
       if (preferences.locatorBoostedByDriving) {
-        Timber.d("Driving detected; locator is already boosted")
+        Timber.d("Driving; locator is already boosted")
       } else {
-        Timber.i("Driving detected; boosting locator to high accuracy (speed-tiered)")
+        Timber.i("Boosting locator to high accuracy (driving, speed-tiered)")
         preferences.locatorBoostedByDriving = true
       }
     }
@@ -108,6 +140,8 @@ class ActivityMonitoringModeController(
   }
 
   private fun stillDetected() {
+    // A brief active burst that never dwelled long enough to boost: drop the pending entry.
+    cancelPendingEntry()
     if (suppressedByManualOverride) {
       sawStillSinceOverride = true
       Timber.d("Still detected while suppressed; arming resume on the next active transition")
@@ -130,6 +164,7 @@ class ActivityMonitoringModeController(
   /** Clears the boost immediately, e.g. when the feature is switched off. */
   @Synchronized
   fun onFeatureDisabled() {
+    cancelPendingEntry()
     cancelPendingRevert()
     clearBoost()
   }
@@ -141,6 +176,7 @@ class ActivityMonitoringModeController(
   @Synchronized
   fun onMonitoringModeChangedExternally(newMode: MonitoringMode) {
     Timber.i("Manual monitoring change to $newMode detected; backing off activity-based switching")
+    cancelPendingEntry()
     cancelPendingRevert()
     clearBoost()
     suppressedByManualOverride = true
@@ -166,5 +202,10 @@ class ActivityMonitoringModeController(
   private fun cancelPendingRevert() {
     revertJob?.cancel()
     revertJob = null
+  }
+
+  private fun cancelPendingEntry() {
+    entryJob?.cancel()
+    entryJob = null
   }
 }

@@ -196,6 +196,10 @@ constructor(
 
   @Preference var activityOnFootLocatorInterval: Int by preferencesStore
 
+  // Seconds you must stay active before the boost engages (entry dwell; 0 = immediate). Filters
+  // brief Activity Recognition bursts so they don't flap the locator.
+  @Preference var activityEntryDelaySeconds: Int by preferencesStore
+
   // Seconds of sustained "still" before the on-foot boost reverts (slow-out hysteresis).
   @Preference var activityRevertDelaySeconds: Int by preferencesStore
 
