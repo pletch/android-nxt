@@ -77,7 +77,11 @@ class MQTTMessageProcessorEndpoint(
       NetworkTrackingCallback(
           { endpointStateRepo.endpointState.value },
           { scope.launch { reconnect() } },
-          { scope.launch { connectingLock.withLock { disconnect() } } })
+          // Our network is gone: reconnect (binds to whatever's available now; a failed attempt
+          // self-schedules a retry) instead of only disconnecting, which previously left the client
+          // stranded in DISCONNECTED if no further onAvailable arrived — e.g. a transient cellular
+          // blip or a wifi→cell handoff while driving.
+          { scope.launch { reconnect() } })
 
   override fun activate() {
     Timber.v("MQTT activate")
@@ -232,6 +236,10 @@ class MQTTMessageProcessorEndpoint(
     Timber.d("Sending message $message")
     val c = client ?: return Result.failure(NotReadyException())
     if (endpointStateRepo.endpointState.value != EndpointState.CONNECTED) {
+      // We have outbound work but aren't connected. Nudge a reconnect (deduped) so a stranded
+      // DISCONNECTED state — e.g. a network change whose recovery was missed — can't leave the
+      // queue backing off forever with nothing trying to restore the connection.
+      scheduler.scheduleMqttReconnect()
       return Result.failure(NotConnectedException())
     }
     message.annotateFromPreferences(preferences)
