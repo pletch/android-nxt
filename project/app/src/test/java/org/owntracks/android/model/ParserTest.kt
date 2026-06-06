@@ -200,6 +200,17 @@ class ParserTest {
   }
 
   @Test
+  fun `Parser can deserialize a location message with a fractional bs`() {
+    val parser = Parser(encryptionProvider)
+    // The iOS app can emit a float battery status (e.g. "bs":2.0); a strict Int decode rejected it.
+    val input =
+        """{"_type":"location","lat":39.9661489,"lon":-86.0766892,"tid":"jp","tst":1780657806,"bs":2.0}"""
+    val messageBase = parser.fromJson(input)
+    assertEquals(MessageLocation::class.java, messageBase.javaClass)
+    assertEquals(BatteryStatus.CHARGING, (messageBase as MessageLocation).batteryStatus)
+  }
+
+  @Test
   fun `a location message with a timer trigger can be parsed`() {
 
     val parser = Parser(encryptionProvider)
