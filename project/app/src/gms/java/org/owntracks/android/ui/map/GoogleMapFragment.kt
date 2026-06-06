@@ -7,7 +7,9 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.gms.maps.CameraUpdate
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
@@ -63,10 +65,16 @@ internal constructor(
       override fun activate(onLocationChangedListener: LocationSource.OnLocationChangedListener) {
         locationJob =
             viewLifecycleOwner.lifecycleScope.launch {
-              viewModel.currentLocation.collect { location ->
-                if (location != null) {
-                  onLocationObserved(location) {
-                    onLocationChangedListener.onLocationChanged(location)
+              // Collect only while STARTED so the blue-dot location request is released when the
+              // map
+              // is backgrounded. Otherwise this keeps the currentLocation flow subscribed (and the
+              // GPS / location privacy indicator active) until the view is destroyed.
+              viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.currentLocation.collect { location ->
+                  if (location != null) {
+                    onLocationObserved(location) {
+                      onLocationChangedListener.onLocationChanged(location)
+                    }
                   }
                 }
               }

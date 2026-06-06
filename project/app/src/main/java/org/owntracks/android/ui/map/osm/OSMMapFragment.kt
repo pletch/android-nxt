@@ -15,7 +15,9 @@ import android.view.ViewGroup
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.core.graphics.drawable.toDrawable
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.preference.PreferenceManager
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
@@ -70,10 +72,14 @@ internal constructor(
           val locationProvider: IMyLocationProvider = this
           locationJob =
               viewLifecycleOwner.lifecycleScope.launch {
-                viewModel.currentLocation.collect { location ->
-                  if (location != null) {
-                    onLocationObserved(location) {
-                      myLocationConsumer?.onLocationChanged(location, locationProvider)
+                // Collect only while STARTED so the blue-dot location request is released when the
+                // map is backgrounded, rather than staying subscribed until the view is destroyed.
+                viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                  viewModel.currentLocation.collect { location ->
+                    if (location != null) {
+                      onLocationObserved(location) {
+                        myLocationConsumer?.onLocationChanged(location, locationProvider)
+                      }
                     }
                   }
                 }
