@@ -226,14 +226,20 @@ class MQTTMessageProcessorEndpoint(
     }
     message.annotateFromPreferences(preferences)
     return try {
-      withContext(ioDispatcher) {
-        c.publishWith()
-            .topic(message.topic)
-            .payload(message.toJsonBytes(parser))
-            .qos(MqttQos.fromCode(message.qos) ?: MqttQos.AT_LEAST_ONCE)
-            .retain(message.retained)
-            .send()
-            .await()
+      // Bound the publish: a QoS 1/2 send().await() completes only on the broker ack, so if the
+      // socket half-opens (e.g. walking out of wifi range) or a reconnect orphans the in-flight
+      // future, this would otherwise hang forever and permanently stall the single outbound loop.
+      // Timing out fails the send, which re-queues the message and lets the loop keep moving.
+      withTimeout(preferences.connectionTimeoutSeconds.seconds.coerceAtLeast(15.seconds)) {
+        withContext(ioDispatcher) {
+          c.publishWith()
+              .topic(message.topic)
+              .payload(message.toJsonBytes(parser))
+              .qos(MqttQos.fromCode(message.qos) ?: MqttQos.AT_LEAST_ONCE)
+              .retain(message.retained)
+              .send()
+              .await()
+        }
       }
       Timber.v("MQTT message sent")
       Result.success(Unit)
