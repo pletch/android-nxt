@@ -110,13 +110,17 @@ class MQTTMessageProcessorEndpoint(
       val c = client ?: return@launch
       val config = connectionConfiguration ?: return@launch
       try {
-        config.topicsToSubscribeTo.forEach { topic ->
-          c.subscribe(
-                  Mqtt3Subscribe.builder()
-                      .topicFilter(topic)
-                      .qos(MqttQos.fromCode(config.subQos.value) ?: MqttQos.AT_LEAST_ONCE)
-                      .build())
-              .await()
+        // Bound (re)subscription so a stalled SUBACK can't leave this coroutine hung and skip the
+        // queue notify below.
+        withTimeout(config.timeout.coerceAtLeast(15.seconds)) {
+          config.topicsToSubscribeTo.forEach { topic ->
+            c.subscribe(
+                    Mqtt3Subscribe.builder()
+                        .topicFilter(topic)
+                        .qos(MqttQos.fromCode(config.subQos.value) ?: MqttQos.AT_LEAST_ONCE)
+                        .build())
+                .await()
+          }
         }
         Timber.d("MQTT subscribed to ${config.topicsToSubscribeTo}")
       } catch (e: Exception) {
@@ -177,7 +181,10 @@ class MQTTMessageProcessorEndpoint(
       Timber.v("MQTT disconnecting")
       withContext(ioDispatcher) {
         try {
-          existing.disconnect().await()
+          // Bound the graceful disconnect: on a half-open socket it can hang, and disconnect() runs
+          // under connectingLock, so a hang would block every future reconnect. Abandon and move
+          // on.
+          withTimeout(5.seconds) { existing.disconnect().await() }
         } catch (e: Exception) {
           Timber.d(e, "Error during MQTT disconnect, ignoring")
         }
