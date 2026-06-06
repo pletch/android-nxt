@@ -14,9 +14,14 @@ import com.hivemq.client.mqtt.mqtt3.message.subscribe.Mqtt3Subscribe
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.KeyStore
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.stream.Collectors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -25,7 +30,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerializationException
 import org.owntracks.android.data.EndpointState
 import org.owntracks.android.data.repos.EndpointStateRepo
@@ -112,15 +116,14 @@ class MQTTMessageProcessorEndpoint(
       try {
         // Bound (re)subscription so a stalled SUBACK can't leave this coroutine hung and skip the
         // queue notify below.
-        withTimeout(config.timeout.coerceAtLeast(15.seconds)) {
-          config.topicsToSubscribeTo.forEach { topic ->
-            c.subscribe(
-                    Mqtt3Subscribe.builder()
-                        .topicFilter(topic)
-                        .qos(MqttQos.fromCode(config.subQos.value) ?: MqttQos.AT_LEAST_ONCE)
-                        .build())
-                .await()
-          }
+        val subscribeTimeout = config.timeout.coerceAtLeast(15.seconds)
+        config.topicsToSubscribeTo.forEach { topic ->
+          c.subscribe(
+                  Mqtt3Subscribe.builder()
+                      .topicFilter(topic)
+                      .qos(MqttQos.fromCode(config.subQos.value) ?: MqttQos.AT_LEAST_ONCE)
+                      .build())
+              .await(subscribeTimeout)
         }
         Timber.d("MQTT subscribed to ${config.topicsToSubscribeTo}")
       } catch (e: Exception) {
@@ -160,8 +163,8 @@ class MQTTMessageProcessorEndpoint(
           Timber.d("Connecting to ${config.host}:${config.port}")
           // Bound the attempt so a stalled connect can never hold connectingLock indefinitely
           // (which previously wedged all reconnects until the process was killed).
-          withTimeout(config.timeout.coerceAtLeast(15.seconds)) {
-            withContext(ioDispatcher) { newClient.connect(config.buildConnect()).await() }
+          withContext(ioDispatcher) {
+            newClient.connect(config.buildConnect()).await(config.timeout.coerceAtLeast(15.seconds))
           }
           Result.success(Unit)
         } catch (e: Exception) {
@@ -184,7 +187,7 @@ class MQTTMessageProcessorEndpoint(
           // Bound the graceful disconnect: on a half-open socket it can hang, and disconnect() runs
           // under connectingLock, so a hang would block every future reconnect. Abandon and move
           // on.
-          withTimeout(5.seconds) { existing.disconnect().await() }
+          existing.disconnect().await(5.seconds)
         } catch (e: Exception) {
           Timber.d(e, "Error during MQTT disconnect, ignoring")
         }
@@ -232,27 +235,35 @@ class MQTTMessageProcessorEndpoint(
       return Result.failure(NotConnectedException())
     }
     message.annotateFromPreferences(preferences)
+    val publishTimeout = preferences.connectionTimeoutSeconds.seconds.coerceAtLeast(15.seconds)
     return try {
-      // Bound the publish: a QoS 1/2 send().await() completes only on the broker ack, so if the
-      // socket half-opens (e.g. walking out of wifi range) or a reconnect orphans the in-flight
-      // future, this would otherwise hang forever and permanently stall the single outbound loop.
-      // Timing out fails the send, which re-queues the message and lets the loop keep moving.
-      withTimeout(preferences.connectionTimeoutSeconds.seconds.coerceAtLeast(15.seconds)) {
-        withContext(ioDispatcher) {
-          c.publishWith()
-              .topic(message.topic)
-              .payload(message.toJsonBytes(parser))
-              .qos(MqttQos.fromCode(message.qos) ?: MqttQos.AT_LEAST_ONCE)
-              .retain(message.retained)
-              .send()
-              .await()
-        }
+      // The QoS 1/2 PUBACK future completes only on the broker ack. On a half-open socket (walking
+      // out of wifi range) the long keepalive won't notice the dead connection, and HiveMQ may
+      // never
+      // settle the future, so await(timeout) force-completes it to keep the single outbound loop
+      // moving instead of wedging it forever.
+      withContext(ioDispatcher) {
+        c.publishWith()
+            .topic(message.topic)
+            .payload(message.toJsonBytes(parser))
+            .qos(MqttQos.fromCode(message.qos) ?: MqttQos.AT_LEAST_ONCE)
+            .retain(message.retained)
+            .send()
+            .await(publishTimeout)
       }
       Timber.v("MQTT message sent")
       Result.success(Unit)
     } catch (e: Exception) {
       Timber.w(e, "Error publishing message $message")
       messageProcessor.onMessageDeliveryFailed(message)
+      // A publish that times out means the connection is dead even though we still think we're
+      // CONNECTED (half-open socket the keepalive hasn't caught). The client's outbound flow is
+      // likely wedged, so force a fresh reconnect — retrying on the same client would just hang
+      // again — and the new client wakes the loop via the connected listener's queue notify.
+      if (e is TimeoutException) {
+        Timber.w("Publish timed out; forcing reconnect so the retry uses a fresh client")
+        scheduler.scheduleMqttReconnect()
+      }
       Result.failure(OutgoingMessageSendingException(e))
     }
   }
@@ -309,10 +320,33 @@ class MQTTMessageProcessorEndpoint(
   class NotConnectedException : Exception()
 }
 
-/** Bridges a [CompletableFuture] to a cancellable coroutine without an extra dependency. */
-private suspend fun <T> CompletableFuture<T>.await(): T = suspendCancellableCoroutine { cont ->
-  whenComplete { value, error ->
-    if (error != null) cont.resumeWithException(error) else cont.resume(value)
-  }
-  cont.invokeOnCancellation { cancel(true) }
-}
+/** Schedules the [CompletableFuture.await] force-completions. One daemon thread is plenty. */
+private val futureTimeoutScheduler: ScheduledExecutorService =
+    Executors.newSingleThreadScheduledExecutor { runnable ->
+      Thread(runnable, "mqtt-future-timeout").apply { isDaemon = true }
+    }
+
+/**
+ * Bridges a [CompletableFuture] to a cancellable coroutine, **force-completing the future** after
+ * [timeout] if it hasn't settled. HiveMQ's async client has cases where a publish/subscribe/connect
+ * future is never completed during connection-state transitions or on a half-open socket (e.g.
+ * github hivemq-mqtt-client #554, #612). A coroutine-level `withTimeout` can't unwind such an await
+ * (the body is parked on a future that never settles), so we complete the future ourselves — which
+ * always resumes this await — rather than relying on cancellation propagation.
+ */
+internal suspend fun <T> CompletableFuture<T>.await(timeout: Duration): T =
+    suspendCancellableCoroutine { cont ->
+      val timeoutTask =
+          futureTimeoutScheduler.schedule(
+              { completeExceptionally(TimeoutException("Future not settled within $timeout")) },
+              timeout.inWholeMilliseconds,
+              TimeUnit.MILLISECONDS)
+      whenComplete { value, error ->
+        timeoutTask.cancel(false)
+        if (error != null) cont.resumeWithException(error) else cont.resume(value)
+      }
+      cont.invokeOnCancellation {
+        timeoutTask.cancel(false)
+        cancel(true)
+      }
+    }
