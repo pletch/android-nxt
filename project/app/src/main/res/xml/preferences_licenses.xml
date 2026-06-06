@@ -27,12 +27,28 @@
             android:data="https://dagger.dev/hilt/" />
     </Preference>
     <Preference
-        android:summary="Eclipse Foundation"
-        android:title="Paho MQTTv3.1 Java Client"
+        android:summary="HiveMQ"
+        android:title="HiveMQ MQTT Client"
         app:iconSpaceReserved="false">
         <intent
             android:action="android.intent.action.VIEW"
-            android:data="https://github.com/eclipse/paho.mqtt.java" />
+            android:data="https://github.com/hivemq/hivemq-mqtt-client" />
+    </Preference>
+    <Preference
+        android:summary="The Netty Project"
+        android:title="Netty"
+        app:iconSpaceReserved="false">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="https://github.com/netty/netty" />
+    </Preference>
+    <Preference
+        android:summary="ReactiveX"
+        android:title="RxJava"
+        app:iconSpaceReserved="false">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="https://github.com/ReactiveX/RxJava" />
     </Preference>
     <Preference
         android:summary="Square"
