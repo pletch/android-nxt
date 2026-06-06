@@ -39,6 +39,7 @@
     <string name="contactDetailsBearing">"Bearing"</string>
     <string name="contactDetailsBearingValue">"%,.0f°"</string>
     <string name="contactDetailsCoordinates">"Coordinates"</string>
+    <string name="contactDetailsReportedAt">"Reported"</string>
     <string name="contactDetailsDistance">"Distance"</string>
     <string name="contactDetailsDistanceUnitKilometres">"km"</string>
     <string name="contactDetailsDistanceUnitMeters">"m"</string>
