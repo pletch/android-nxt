@@ -17,7 +17,6 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.os.Process
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.StyleSpan
@@ -328,7 +327,10 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         }
         // This comes from the [GeofencingBroadcastReceiver]
         INTENT_ACTION_SEND_EVENT_CIRCULAR -> {
-          lifecycleScope.launch { onGeofencingEvent(fromIntent(intent)) }
+          val event = fromIntent(intent)
+          if (!event.hasError() && !event.triggeringGeofences.isNullOrEmpty()) {
+            lifecycleScope.launch { onGeofencingEvent(fromIntent(intent)) }
+          }
           return
         }
         // This comes from the gms ActivityRecognitionReceiver
@@ -384,10 +386,6 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             }
           }
           setupAndStartService()
-          return
-        }
-        INTENT_ACTION_EXIT -> {
-          exit()
           return
         }
         else -> {}
@@ -448,13 +446,6 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     } else {
       activityRecognitionClient.removeActivityUpdates()
     }
-  }
-
-  private fun exit() {
-    Timber.v("exit() called. Stopping service and process.")
-    stopSelf()
-    scheduler.cancelAllTasks()
-    Process.killProcess(Process.myPid())
   }
 
   private fun notifyUserOfBackgroundLocationRestriction() {
@@ -782,14 +773,13 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     const val INTENT_ACTION_SEND_LOCATION_USER = "org.owntracks.android.SEND_LOCATION_USER"
     const val INTENT_ACTION_SEND_EVENT_CIRCULAR = "org.owntracks.android.SEND_EVENT_CIRCULAR"
     const val INTENT_ACTION_ACTIVITY_TRANSITION = "org.owntracks.android.ACTIVITY_TRANSITION"
-    // BooleanArray extra on INTENT_ACTION_ACTIVITY_TRANSITION: one flag per detected transition,
-    // true = entered an on-foot activity, false = entered still/in-vehicle.
+    // IntArray extra on INTENT_ACTION_ACTIVITY_TRANSITION: one DetectedActivityChange ordinal per
+    // detected ENTER transition (on-foot / in-vehicle / still).
     const val EXTRA_ACTIVITY_CHANGE_ORDINALS = "activityChangeOrdinals"
     private const val INTENT_ACTION_CLEAR_NOTIFICATIONS =
         "org.owntracks.android.CLEAR_EVENT_NOTIFICATIONS"
     private const val INTENT_ACTION_CLEAR_CONTACTS = "org.owntracks.android.CLEAR_CONTACTS"
     const val INTENT_ACTION_CHANGE_MONITORING = "org.owntracks.android.CHANGE_MONITORING"
-    private const val INTENT_ACTION_EXIT = "org.owntracks.android.EXIT"
     private const val INTENT_ACTION_BOOT_COMPLETED = "android.intent.action.BOOT_COMPLETED"
     private const val INTENT_ACTION_PACKAGE_REPLACED = "android.intent.action.MY_PACKAGE_REPLACED"
     const val UPDATE_CURRENT_INTENT_FLAGS =
