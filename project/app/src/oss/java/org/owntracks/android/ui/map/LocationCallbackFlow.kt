@@ -12,13 +12,17 @@ import org.osmdroid.views.overlay.mylocation.IMyLocationProvider
 
 fun locationCallbackFlow(context: Context): Flow<Location> = callbackFlow {
   val provider =
+      // A 2s/1m cadence keeps the GPS (and the location privacy indicator) pinned on the whole time
+      // the map is open, which is overkill for a viewing map. A 5s/5m cadence keeps the dot usable
+      // while letting the providers rest; the foreground tracking service still drives actual
+      // fixes.
       GpsMyLocationProvider(context).apply {
         clearLocationSources()
         addLocationSource("gps")
         addLocationSource("network")
         addLocationSource("passive")
-        locationUpdateMinTime = TimeUnit.SECONDS.toMillis(2)
-        locationUpdateMinDistance = 1f
+        locationUpdateMinTime = TimeUnit.SECONDS.toMillis(5)
+        locationUpdateMinDistance = 5f
       }
   val consumer = IMyLocationConsumer { location: Location?, _: IMyLocationProvider? ->
     location?.let { trySend(it) }

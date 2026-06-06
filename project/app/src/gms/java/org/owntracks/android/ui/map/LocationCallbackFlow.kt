@@ -34,10 +34,15 @@ fun locationCallbackFlow(client: FusedLocationProviderClient): Flow<Location> = 
       }
   client
       .requestLocationUpdates(
+          // Balanced power for the on-screen "blue dot": high accuracy every 2s pins the GPS on
+          // (and the location privacy indicator) the whole time the map is open, which is overkill
+          // for a viewing map. Balanced + a 5s cadence lets the provider duty-cycle while keeping
+          // the dot perfectly usable; the foreground tracking service still drives the actual
+          // fixes.
           LocationRequest(
-                  smallestDisplacement = 1f,
-                  priority = LocatorPriority.HighAccuracy,
-                  interval = Duration.ofSeconds(2),
+                  smallestDisplacement = 5f,
+                  priority = LocatorPriority.BalancedPowerAccuracy,
+                  interval = Duration.ofSeconds(5),
                   waitForAccurateLocation = false)
               .toGMSLocationRequest(),
           callback,
