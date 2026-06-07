@@ -27,6 +27,13 @@ class LocationRepo @Inject constructor() {
   var currentBlueDotOnMapLocation: LatLng? = null
 
   /**
+   * The device's most recently detected motion activity in OwnTracks `motionactivities` form, set
+   * from activity recognition (gms) and attached to outgoing locations. Null when unknown (e.g.
+   * oss, or activity recognition disabled).
+   */
+  @Volatile var currentMotionActivities: List<String>? = null
+
+  /**
    * Where the map was last moved to. This might have been from an explicit user action, or from the
    * map being moved due to being in DEVICE or CONTACT modes
    */

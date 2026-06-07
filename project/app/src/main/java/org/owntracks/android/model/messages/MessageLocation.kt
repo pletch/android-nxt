@@ -112,6 +112,11 @@ open class MessageLocation(
 
   @SerialName("inregions") var inregions: List<String>? = null
 
+  // Documented OwnTracks field: motion states detected by the device (a combination of stationary,
+  // walking, running, automotive, cycling, unknown). iOS emits it natively; we also emit it from
+  // Android's activity recognition. Omitted from the wire when null.
+  @SerialName("motionactivities") var motionActivities: List<String>? = null
+
   @SerialName("BSSID") var bssid: String? = null
 
   @SerialName("SSID") var ssid: String? = null

@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.ArgumentMatchers.anyString
@@ -208,6 +209,26 @@ class ParserTest {
     val messageBase = parser.fromJson(input)
     assertEquals(MessageLocation::class.java, messageBase.javaClass)
     assertEquals(BatteryStatus.CHARGING, (messageBase as MessageLocation).batteryStatus)
+  }
+
+  @Test
+  fun `Parser round-trips motionactivities`() {
+    val parser = Parser(encryptionProvider)
+    val input =
+        """{"_type":"location","lat":39.9,"lon":-86.0,"tid":"jp","tst":1780657806,"motionactivities":["walking"]}"""
+    val message = parser.fromJson(input) as MessageLocation
+    assertEquals(listOf("walking"), message.motionActivities)
+    // and it serializes back out
+    assertTrue(parser.toJsonPlain(message).contains("\"motionactivities\":[\"walking\"]"))
+  }
+
+  @Test
+  fun `a location message without motionactivities leaves it null and off the wire`() {
+    val parser = Parser(encryptionProvider)
+    val input = """{"_type":"location","lat":39.9,"lon":-86.0,"tid":"jp","tst":1780657806}"""
+    val message = parser.fromJson(input) as MessageLocation
+    assertNull(message.motionActivities)
+    assertFalse(parser.toJsonPlain(message).contains("motionactivities"))
   }
 
   @Test

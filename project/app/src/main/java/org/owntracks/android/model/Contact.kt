@@ -77,6 +77,7 @@ class Contact(id: String) : BaseObservable() {
     altitude = messageLocation.altitude
     velocity = messageLocation.velocity
     battery = messageLocation.battery
+    motionActivities = messageLocation.motionActivities
     return true
   }
 
@@ -110,6 +111,15 @@ class Contact(id: String) : BaseObservable() {
     private set(value) {
       field = value
       notifyPropertyChanged(BR.velocity)
+    }
+
+  // The contact's reported motionactivities (OwnTracks field), preferred over velocity for the
+  // activity badge when present.
+  @get:Bindable
+  var motionActivities: List<String>? = null
+    private set(value) {
+      field = value
+      notifyPropertyChanged(BR.motionActivities)
     }
 
   @get:Bindable

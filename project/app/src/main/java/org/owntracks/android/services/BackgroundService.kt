@@ -338,6 +338,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
           if (preferences.autoMonitoringByActivity) {
             intent.getIntArrayExtra(EXTRA_ACTIVITY_CHANGE_ORDINALS)?.forEach { ordinal ->
               val change = DetectedActivityChange.entries[ordinal]
+              // Record the actual detected activity (independent of the driving-boost gating below)
+              // so it can be published as `motionactivities`. Last ordinal wins = current activity.
+              locationRepo.currentMotionActivities = change.toMotionActivities()
               // When driving boost is off, treat getting in a vehicle like becoming still (revert).
               val effective =
                   if (change == DetectedActivityChange.IN_VEHICLE &&
@@ -445,6 +448,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       activityRecognitionClient.requestActivityUpdates()
     } else {
       activityRecognitionClient.removeActivityUpdates()
+      // Stop attaching a now-stale activity to outgoing locations.
+      locationRepo.currentMotionActivities = null
     }
   }
 

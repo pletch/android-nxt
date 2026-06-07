@@ -16,6 +16,18 @@ enum class DetectedActivityChange {
 }
 
 /**
+ * Maps a detected activity onto the OwnTracks `motionactivities` vocabulary (stationary / walking /
+ * running / automotive / cycling / unknown) for publishing. The controller collapses Google's
+ * richer set to three states, so we emit the closest spec term for each.
+ */
+fun DetectedActivityChange.toMotionActivities(): List<String> =
+    when (this) {
+      DetectedActivityChange.ON_FOOT -> listOf("walking")
+      DetectedActivityChange.IN_VEHICLE -> listOf("automotive")
+      DetectedActivityChange.STILL -> listOf("stationary")
+    }
+
+/**
  * Decision engine for activity-triggered adaptive monitoring
  * ([Preferences.autoMonitoringByActivity]).
  *

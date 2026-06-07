@@ -59,7 +59,11 @@ constructor(
    */
   suspend fun getBitmapFromCache(contact: Contact): Bitmap {
     val base = getBaseBitmapFromCache(contact)
-    val activity = ContactActivity.fromVelocity(contact.velocity)
+    // Prefer the contact's explicitly-reported motion activity (e.g. iOS motionactivities, or our
+    // own Android emission); fall back to inferring it from velocity.
+    val activity =
+        ContactActivity.fromMotionActivities(contact.motionActivities)
+            ?: ContactActivity.fromVelocity(contact.velocity)
     if (activity == ContactActivity.NONE) {
       return base
     }

@@ -256,6 +256,13 @@ class ActivityMonitoringModeControllerTest {
     assertTrue(preferences.locatorBoostedByDriving)
   }
 
+  @Test
+  fun `detected activity maps to the OwnTracks motionactivities vocabulary`() {
+    assertEquals(listOf("walking"), DetectedActivityChange.ON_FOOT.toMotionActivities())
+    assertEquals(listOf("automotive"), DetectedActivityChange.IN_VEHICLE.toMotionActivities())
+    assertEquals(listOf("stationary"), DetectedActivityChange.STILL.toMotionActivities())
+  }
+
   companion object {
     private const val REVERT_DELAY_SECONDS = 180
     private const val ENTRY_DELAY_SECONDS = 30

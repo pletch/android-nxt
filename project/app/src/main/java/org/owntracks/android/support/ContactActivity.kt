@@ -21,5 +21,23 @@ enum class ContactActivity {
           velocityKmh < DRIVING_MIN_KMH -> WALKING
           else -> DRIVING
         }
+
+    /**
+     * Maps a contact's reported `motionactivities` (the documented OwnTracks field; a combination
+     * of stationary / walking / running / automotive / cycling / unknown) onto a badge. Returns
+     * null when there's nothing usable (absent, empty, or only "unknown") so the caller can fall
+     * back to velocity inference. "automotive" wins when combined with others (you're in the
+     * vehicle).
+     */
+    fun fromMotionActivities(activities: List<String>?): ContactActivity? {
+      if (activities.isNullOrEmpty()) return null
+      val set = activities.map { it.lowercase() }.toHashSet()
+      return when {
+        "automotive" in set -> DRIVING
+        "walking" in set || "running" in set || "cycling" in set -> WALKING
+        "stationary" in set -> NONE
+        else -> null // unknown / unrecognised -> let the caller fall back to velocity
+      }
+    }
   }
 }
