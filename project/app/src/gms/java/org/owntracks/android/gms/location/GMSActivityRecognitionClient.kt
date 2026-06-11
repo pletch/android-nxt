@@ -56,7 +56,8 @@ class GMSActivityRecognitionClient(private val context: Context) : ActivityRecog
             DetectedActivity.RUNNING,
             DetectedActivity.ON_FOOT,
             DetectedActivity.STILL,
-            DetectedActivity.IN_VEHICLE)
+            DetectedActivity.IN_VEHICLE,
+            DetectedActivity.ON_BICYCLE)
 
     private val TRANSITIONS =
         MONITORED_ACTIVITIES.flatMap { activity ->

@@ -81,6 +81,7 @@ constructor(
         when (activity) {
           ContactActivity.WALKING -> R.drawable.ic_directions_walk to R.color.activityBadgeWalking
           ContactActivity.DRIVING -> R.drawable.ic_directions_car to R.color.activityBadgeDriving
+          ContactActivity.CYCLING -> R.drawable.ic_directions_bike to R.color.activityBadgeCycling
           ContactActivity.NONE -> return base
         }
     val result = base.copy(Bitmap.Config.ARGB_8888, true)

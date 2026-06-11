@@ -11,7 +11,7 @@ class ContactActivityTest {
         ContactActivity.DRIVING, ContactActivity.fromMotionActivities(listOf("automotive")))
     assertEquals(ContactActivity.WALKING, ContactActivity.fromMotionActivities(listOf("walking")))
     assertEquals(ContactActivity.WALKING, ContactActivity.fromMotionActivities(listOf("running")))
-    assertEquals(ContactActivity.WALKING, ContactActivity.fromMotionActivities(listOf("cycling")))
+    assertEquals(ContactActivity.CYCLING, ContactActivity.fromMotionActivities(listOf("cycling")))
     assertEquals(ContactActivity.NONE, ContactActivity.fromMotionActivities(listOf("stationary")))
   }
 
@@ -20,6 +20,16 @@ class ContactActivityTest {
     assertEquals(
         ContactActivity.DRIVING,
         ContactActivity.fromMotionActivities(listOf("walking", "automotive")))
+  }
+
+  @Test
+  fun `cycling beats walking but loses to automotive`() {
+    assertEquals(
+        ContactActivity.CYCLING,
+        ContactActivity.fromMotionActivities(listOf("walking", "cycling")))
+    assertEquals(
+        ContactActivity.DRIVING,
+        ContactActivity.fromMotionActivities(listOf("cycling", "automotive")))
   }
 
   @Test

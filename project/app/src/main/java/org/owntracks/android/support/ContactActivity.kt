@@ -7,7 +7,10 @@ package org.owntracks.android.support
 enum class ContactActivity {
   NONE,
   WALKING,
-  DRIVING;
+  DRIVING,
+  // Only ever produced from a reported `cycling` motionactivity; velocity can't tell a cyclist
+  // apart from a walker or a car, so fromVelocity never returns this.
+  CYCLING;
 
   companion object {
     // Velocity bands in km/h. Below WALKING_MIN_KMH we show no badge (stationary or GPS jitter);
@@ -26,15 +29,16 @@ enum class ContactActivity {
      * Maps a contact's reported `motionactivities` (the documented OwnTracks field; a combination
      * of stationary / walking / running / automotive / cycling / unknown) onto a badge. Returns
      * null when there's nothing usable (absent, empty, or only "unknown") so the caller can fall
-     * back to velocity inference. "automotive" wins when combined with others (you're in the
-     * vehicle).
+     * back to velocity inference. Precedence when several are reported at once: automotive (you're
+     * in the vehicle) > cycling > walking/running > stationary.
      */
     fun fromMotionActivities(activities: List<String>?): ContactActivity? {
       if (activities.isNullOrEmpty()) return null
       val set = activities.map { it.lowercase() }.toHashSet()
       return when {
         "automotive" in set -> DRIVING
-        "walking" in set || "running" in set || "cycling" in set -> WALKING
+        "cycling" in set -> CYCLING
+        "walking" in set || "running" in set -> WALKING
         "stationary" in set -> NONE
         else -> null // unknown / unrecognised -> let the caller fall back to velocity
       }
