@@ -13,10 +13,10 @@ object DrivingSpeedTier {
   // (exclusive upper speed bound in km/h) to (sampling interval in seconds), ascending by speed.
   private val BANDS =
       listOf(
-          30 to 8, // city / traffic: tight, capture turns
-          70 to 13, // arterial roads
-          110 to 18, // highway
-          Int.MAX_VALUE to 22) // motorway: coarse, let the GPS sleep between fixes
+          30 to 7, // city / traffic: tight, capture turns
+          70 to 12, // arterial roads
+          110 to 16, // highway
+          Int.MAX_VALUE to 20) // motorway: coarse, let the GPS sleep between fixes
 
   private const val HYSTERESIS_KMH = 8
 

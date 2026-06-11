@@ -8,34 +8,34 @@ class DrivingSpeedTierTest {
   @Test
   fun `interval steps up as speed increases from default`() {
     val d = DrivingSpeedTier.DEFAULT_INTERVAL_SECONDS
-    assertEquals(8, DrivingSpeedTier.intervalSecondsForSpeed(10f, d)) // city
-    assertEquals(13, DrivingSpeedTier.intervalSecondsForSpeed(50f, d)) // arterial
-    assertEquals(18, DrivingSpeedTier.intervalSecondsForSpeed(90f, d)) // highway
-    assertEquals(22, DrivingSpeedTier.intervalSecondsForSpeed(130f, d)) // motorway
+    assertEquals(7, DrivingSpeedTier.intervalSecondsForSpeed(10f, d)) // city
+    assertEquals(12, DrivingSpeedTier.intervalSecondsForSpeed(50f, d)) // arterial
+    assertEquals(16, DrivingSpeedTier.intervalSecondsForSpeed(90f, d)) // highway
+    assertEquals(20, DrivingSpeedTier.intervalSecondsForSpeed(130f, d)) // motorway
   }
 
   @Test
   fun `band is sticky within the hysteresis margin around a boundary`() {
-    // Currently in the city band (8s); 32 km/h is just past the 30 boundary but within the 8
+    // Currently in the city band (7s); 32 km/h is just past the 30 boundary but within the 8
     // margin,
     // so we stay in the city band rather than flapping.
-    assertEquals(8, DrivingSpeedTier.intervalSecondsForSpeed(32f, 8))
+    assertEquals(7, DrivingSpeedTier.intervalSecondsForSpeed(32f, 7))
     // Clear the boundary by the margin (>= 38) to move up to the arterial band.
-    assertEquals(13, DrivingSpeedTier.intervalSecondsForSpeed(38f, 8))
+    assertEquals(12, DrivingSpeedTier.intervalSecondsForSpeed(38f, 7))
   }
 
   @Test
   fun `dropping speed only steps down past the lower boundary minus margin`() {
-    // In the arterial band (13s); 25 km/h is below 30 but not below 30-8=22, so stay put.
-    assertEquals(13, DrivingSpeedTier.intervalSecondsForSpeed(25f, 13))
+    // In the arterial band (12s); 25 km/h is below 30 but not below 30-8=22, so stay put.
+    assertEquals(12, DrivingSpeedTier.intervalSecondsForSpeed(25f, 12))
     // Below 22 drops back to the city band.
-    assertEquals(8, DrivingSpeedTier.intervalSecondsForSpeed(20f, 13))
+    assertEquals(7, DrivingSpeedTier.intervalSecondsForSpeed(20f, 12))
   }
 
   @Test
   fun `large speed jumps cross multiple bands at once`() {
-    assertEquals(22, DrivingSpeedTier.intervalSecondsForSpeed(130f, 8))
-    assertEquals(8, DrivingSpeedTier.intervalSecondsForSpeed(0f, 22))
+    assertEquals(20, DrivingSpeedTier.intervalSecondsForSpeed(130f, 7))
+    assertEquals(7, DrivingSpeedTier.intervalSecondsForSpeed(0f, 20))
   }
 
   @Test
