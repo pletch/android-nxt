@@ -83,12 +83,21 @@ constructor(
           ContactActivity.DRIVING -> R.drawable.ic_directions_car to R.color.activityBadgeDriving
           ContactActivity.NONE -> return base
         }
-    val result = base.copy(Bitmap.Config.ARGB_8888, true)
+    // Grow the canvas symmetrically so the badge can overhang the avatar's edge instead of
+    // covering the centred initials. The avatar stays centred, so the marker's centre anchor —
+    // and the square aspect ratio the list/detail ImageViews rely on — is unaffected.
+    val avatar = base.width.toFloat()
+    val margin = avatar * 0.14f
+    val canvasSize = (avatar + 2 * margin).toInt()
+    val result = Bitmap.createBitmap(canvasSize, canvasSize, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(result)
-    val size = result.width.toFloat()
-    val radius = size * 0.3f
-    val cx = size - radius
-    val cy = size - radius
+    canvas.drawBitmap(base, margin, margin, null)
+
+    // Seat the badge in the bottom-right corner, straddling the avatar's rim: part of it rests on
+    // the circle's edge, the rest overhangs into the new margin — clear of the initials.
+    val radius = avatar * 0.21f
+    val cx = canvasSize - radius - avatar * 0.02f
+    val cy = cx
 
     // White ring then coloured fill, so the badge reads against any map background.
     canvas.drawCircle(cx, cy, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
