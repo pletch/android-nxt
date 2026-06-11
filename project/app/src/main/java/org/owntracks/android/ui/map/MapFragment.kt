@@ -107,6 +107,7 @@ internal constructor(
           // STARTED. Repo changes arrive on a no-replay SharedFlow, so updates that landed while
           // the map was stopped (e.g. while the Friends list was on top) were dropped; without
           // this re-sync the pins stay stale until that contact next emits a live update.
+          // (Upstream `48801c79` independently added the same on-foreground reconcile.)
           updateAllMarkers(allContacts.values.toSet())
           launch { mapCenter.collect { updateCamera(it) } }
           launch {
