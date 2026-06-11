@@ -18,4 +18,5 @@
 
     <color name="activityBadgeWalking">#ff2e7d32</color>
     <color name="activityBadgeDriving">#ff1565c0</color>
+    <color name="activityBadgeCycling">#ffef6c00</color>
 </resources>

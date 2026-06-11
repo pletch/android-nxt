@@ -50,6 +50,7 @@ class ActivityRecognitionReceiver : BroadcastReceiver(), ServiceStarter by Servi
         DetectedActivity.ON_FOOT -> DetectedActivityChange.ON_FOOT
         DetectedActivity.IN_VEHICLE -> DetectedActivityChange.IN_VEHICLE
         DetectedActivity.STILL -> DetectedActivityChange.STILL
+        DetectedActivity.ON_BICYCLE -> DetectedActivityChange.CYCLING
         else -> null
       }
 

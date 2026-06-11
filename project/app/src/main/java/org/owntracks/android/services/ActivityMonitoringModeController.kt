@@ -12,7 +12,9 @@ import timber.log.Timber
 enum class DetectedActivityChange {
   ON_FOOT,
   IN_VEHICLE,
-  STILL
+  STILL,
+  // Appended last so existing ordinals (used for the IntArray IPC to BackgroundService) stay stable.
+  CYCLING
 }
 
 /**
@@ -25,6 +27,7 @@ fun DetectedActivityChange.toMotionActivities(): List<String> =
       DetectedActivityChange.ON_FOOT -> listOf("walking")
       DetectedActivityChange.IN_VEHICLE -> listOf("automotive")
       DetectedActivityChange.STILL -> listOf("stationary")
+      DetectedActivityChange.CYCLING -> listOf("cycling")
     }
 
 /**
@@ -72,6 +75,9 @@ class ActivityMonitoringModeController(
       DetectedActivityChange.ON_FOOT -> onActiveDetected(onFoot = true)
       DetectedActivityChange.IN_VEHICLE -> onActiveDetected(onFoot = false)
       DetectedActivityChange.STILL -> stillDetected()
+      // Cycling is active but slower/stop-start like walking, so use the fixed on-foot boost
+      // rather than the speed-tiered driving profile.
+      DetectedActivityChange.CYCLING -> onActiveDetected(onFoot = true)
     }
   }
 
