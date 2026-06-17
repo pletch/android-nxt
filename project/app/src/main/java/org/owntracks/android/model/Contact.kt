@@ -1,7 +1,10 @@
+@file:OptIn(ExperimentalTime::class)
+
 package org.owntracks.android.model
 
 import androidx.databinding.BaseObservable
 import androidx.databinding.Bindable
+import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.owntracks.android.BR
