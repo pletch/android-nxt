@@ -6,6 +6,7 @@ name: PR Opened (No Tests)
     types: [opened, synchronize]
     branches:
       - master
+      - integration-260
     paths-ignore:
       - ".github/workflows/**"
       - "project/app/src/**"

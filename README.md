@@ -1,8 +1,40 @@
-# OwnTracks for Android
+# OwnTracks for Android (unofficial fork)
 
-This is the OwnTracks Android app. See our [booklet](http://owntracks.org/booklet/features/android/) for details on how to get started with OwnTracks, as well some details about behaviour specific to the Android app.
+> [!IMPORTANT]
+> **This is an unofficial fork of [owntracks/android](https://github.com/owntracks/android).**
+> It is not built, signed, or distributed by the OwnTracks project, and it is not available on the Google Play Store, F-Droid, or IzzyOnDroid. It tracks upstream but carries a number of additional, unreleased changes (see [Changes in this fork](#changes-in-this-fork) below). For the official app, please use [owntracks/android](https://github.com/owntracks/android).
+>
+> The default branch of this repository is [`integration-260`](https://github.com/pletch/android-nxt/tree/integration-260), which integrates all of the changes listed below.
 
-![GitHub License](https://img.shields.io/github/license/owntracks/android) ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/owntracks/android/build-and-test.yaml?branch=master) [![Get it on Google Play](https://img.shields.io/endpoint?color=green&logo=google-play&logoColor=green&url=https%3A%2F%2Fplay.cuzi.workers.dev%2Fplay%3Fi%3Dorg.owntracks.android%26gl%3DUS%26hl%3Den%26l%3D%24name%26m%3D%24version)](https://play.google.com/store/apps/details?id=org.owntracks.android&hl=en_GB) [![F-Droid Version](https://img.shields.io/f-droid/v/org.owntracks.android)](https://f-droid.org/en/packages/org.owntracks.android/) [<img src="https://img.shields.io/endpoint?url=https://apt.izzysoft.de/fdroid/api/v1/shield/org.owntracks.android">](https://apt.izzysoft.de/packages/org.owntracks.android)
+This is the OwnTracks Android app. See the upstream [booklet](http://owntracks.org/booklet/features/android/) for details on how to get started with OwnTracks, as well some details about behaviour specific to the Android app.
+
+## Changes in this fork
+
+These are the individual changes carried on top of upstream `master`. Each is developed on its own feature branch and integrated into [`integration-260`](https://github.com/pletch/android-nxt/tree/integration-260).
+
+### Messaging / MQTT
+* **Migrate the MQTT client from Eclipse Paho to HiveMQ.** Replaces the legacy Paho client with the HiveMQ MQTT client (Netty/RxJava under the hood).
+* **Own the MQTT reconnect logic** instead of relying on HiveMQ auto-reconnect, and **recover — rather than just disconnect — when the active network is lost.**
+* **Reliability hardening:** bound the publish, disconnect, and subscribe awaits so a stuck operation can't stall the outbound loop, and time out publishes at the future level rather than via `withTimeout`.
+
+### Activity-triggered monitoring
+* **Activity-triggered adaptive monitoring** (upstream PR [#877](https://github.com/owntracks/android/pull/877)): adjust monitoring based on detected motion activity.
+* **Speed-tiered driving boost** that raises sampling while driving, with an **optional entry dwell to suppress flapping** at the start of an activity, and **tightened driving sampling bands (~10%)** for finer tracks.
+
+### Map & contacts
+* **Badge contact markers with inferred activity** (walking / driving), **detect and badge cycling as a distinct activity**, and **seat the badge on the marker edge** so it clears the contact initials.
+* **Consume and emit the OwnTracks `motionactivities` field.**
+* **Show the reported time (`created_at`) on the contact details sheet.**
+* **Locale-aware units** for contact speed, altitude, and distance.
+* **Optionally hide markers for inactive (stale) contacts,** and **keep friend markers in sync with contact state.**
+
+### Location power
+* **Dial back the live blue-dot locator to balanced power,** and **release the blue-dot location request when the map is backgrounded** to save battery.
+
+### Message parsing
+* **More lenient parsing:** accept fractional epoch seconds in `tst`/`created_at`, tolerate a fractional `batt` in location messages, and tolerate a fractional/unknown battery status (`bs`).
+
+![GitHub License](https://img.shields.io/github/license/pletch/android-nxt) ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/pletch/android-nxt/trunk-build.yaml?branch=integration-260)
 
 
 

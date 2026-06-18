@@ -5,6 +5,7 @@ name: Push to default publish to internal track
   push:
     branches:
       - master
+      - integration-260
     paths:
       - ".github/workflows/trunk-build.yaml"
       - ".github/workflows/build-test-lint.yaml"

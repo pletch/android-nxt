@@ -6,6 +6,7 @@ name: PR Opened (Espresso)
     types: [opened]
     branches:
       - master
+      - integration-260
     paths:
       - ".github/workflows/espresso.yaml"
       - "project/app/src/**"
