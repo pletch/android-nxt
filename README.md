@@ -18,7 +18,7 @@ These are the individual changes carried on top of upstream `master`. Each is de
 * **Reliability hardening:** bound the publish, disconnect, and subscribe awaits so a stuck operation can't stall the outbound loop, and time out publishes at the future level rather than via `withTimeout`.
 
 ### Activity-triggered monitoring
-* **Activity-triggered adaptive monitoring** (upstream PR [#877](https://github.com/owntracks/android/pull/877)): adjust monitoring based on detected motion activity.
+* **Activity-triggered adaptive monitoring:** an opt-in feature that boosts the locator to high accuracy while on-foot activity (walking/running) is detected, then reverts to your normal settings once stationary — capturing walks/hikes in detail without leaving Move mode on permanently. Uses Google Play Services Activity Recognition, so it is `gms`-flavour only (the `oss` flavour binds a no-op).
 * **Speed-tiered driving boost** that raises sampling while driving, with an **optional entry dwell to suppress flapping** at the start of an activity, and **tightened driving sampling bands (~10%)** for finer tracks.
 
 ### Map & contacts
