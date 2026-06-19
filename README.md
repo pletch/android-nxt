@@ -13,7 +13,7 @@ This is the OwnTracks Android app. See the upstream [booklet](http://owntracks.o
 These are the individual changes carried on top of upstream `master`. Each is developed on its own feature branch and integrated into [`integration-260`](https://github.com/pletch/android-nxt/tree/integration-260).
 
 ### Messaging / MQTT
-* **Migrate the MQTT client from Eclipse Paho to HiveMQ.** Replaces the legacy Paho client with the HiveMQ MQTT client (Netty/RxJava under the hood).
+* **Migrate the MQTT client from Eclipse Paho to HiveMQ.** Replaces the unmaintained Eclipse Paho v3 client with the HiveMQ MQTT client (Netty/RxJava under the hood), keeping TCP/TLS with client-cert support and adding first-class WebSocket transport (configurable `wsPath`; TLS + WebSocket = `wss`). A key motivation is more reliable WebSocket (`wss`) connections, which were a weak spot of the Paho client.
 * **Own the MQTT reconnect logic** instead of relying on HiveMQ auto-reconnect, and **recover — rather than just disconnect — when the active network is lost.**
 * **Reliability hardening:** bound the publish, disconnect, and subscribe awaits so a stuck operation can't stall the outbound loop, and time out publishes at the future level rather than via `withTimeout`.
 
@@ -29,7 +29,8 @@ These are the individual changes carried on top of upstream `master`. Each is de
 * **Optionally hide markers for inactive (stale) contacts,** and **keep friend markers in sync with contact state.**
 
 ### Location power
-* **Dial back the live blue-dot locator to balanced power,** and **release the blue-dot location request when the map is backgrounded** to save battery.
+* **Fix the map keeping a location request active while backgrounded.** The map's current-location source collected its location flow in a bare lifecycle scope, so the collector kept running while the map fragment was merely stopped (backgrounded), not destroyed. That held the fused-location request open, so it kept firing — and kept the system location indicator (drawn as the map's blue dot) lit — the entire time the app was in the background, until the view was destroyed. The collect is now scoped to the started lifecycle, so the request is released when the map is backgrounded and restored on resume.
+* **Dial back the in-use map locator to balanced power.** While the map is open, the current-location request now uses balanced-power accuracy at a 5s/5m cadence instead of high accuracy every 2s, letting the location providers duty-cycle. The foreground tracking service still drives the actual recorded fixes, so the accuracy of logged locations is unaffected.
 
 ### Message parsing
 * **More lenient parsing:** accept fractional epoch seconds in `tst`/`created_at`, tolerate a fractional `batt` in location messages, and tolerate a fractional/unknown battery status (`bs`).
@@ -49,9 +50,7 @@ Both flavours are published as an APK to Github releases.
 
 ### Signing keys
 
-* Google Play store-distributed builds are signed with Google's App signing key: `02:FD:16:4A:95:46:17:F0:B7:94:57:97:37:C9:7A:07:B8:31:83:1D:0A:05:90:C3:8D:07:2B:FE:29:01:08:F1`
-* APKs attached to Github Releases are signed with our own key: `1F:C4:DE:52:D0:DA:A3:3A:9C:0E:3D:67:21:7A:77:C8:95:B4:62:66:EF:02:0F:AD:0D:48:21:6A:6A:D6:CB:70`
-* F-Droid builds are signed with their own key, details at <https://f-droid.org/en/docs/Release_Channels_and_Signing_Keys/>
+This fork is not distributed through the Google Play Store or F-Droid and is not signed with the official OwnTracks signing keys. Builds you produce from this repository are signed with your own key. The official app's signing keys are documented in the [upstream README](https://github.com/owntracks/android#signing-keys).
 
 ## Contributing
 
