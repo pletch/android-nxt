@@ -838,7 +838,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
                 } else {
                   ""
                 } +
-                "isInteractive=${powerManager.isInteractive} ")
+                "isInteractive=${powerManager.isInteractive} isIgnoringBatteryOptimizations=${powerManager.isIgnoringBatteryOptimizations(applicationContext.packageName)}")
       }
     }
   }
