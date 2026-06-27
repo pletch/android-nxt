@@ -20,6 +20,25 @@ object DrivingSpeedTier {
 
   private const val HYSTERESIS_KMH = 8
 
+  /**
+   * GPS-speed thresholds for engaging/disengaging the driving boost when Activity Recognition
+   * misses it (AR is accelerometer-based and reports STILL during smooth constant-velocity
+   * cruising, so speed is the only reliable vehicle signal there). [DRIVING_ENTER_KMH] sits above
+   * running and typical cycling so those aren't misread as driving; the gap down to
+   * [DRIVING_EXIT_KMH] is hysteresis so a stop-and-go crawl doesn't flap the boost.
+   */
+  const val DRIVING_ENTER_KMH = 36f
+
+  const val DRIVING_EXIT_KMH = 9f
+
+  /**
+   * Consecutive vehicular-speed fixes required before GPS speed will override an *already active*
+   * on-foot / cycling boost (switching it straight to the driving profile). One fix is enough to
+   * engage from no boost; overriding AR's on-foot classification demands sustained speed so a brief
+   * fast downhill on a bike isn't misread as driving.
+   */
+  const val DRIVING_OVERRIDE_CONFIRMATION_FIXES = 2
+
   /** The interval the boost starts at before any speed is observed. */
   val DEFAULT_INTERVAL_SECONDS = BANDS.last().second
 

@@ -125,6 +125,16 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   // The interval currently in effect for the driving boost (speed-tiered; see DrivingSpeedTier).
   private var currentDrivingIntervalSeconds = DrivingSpeedTier.DEFAULT_INTERVAL_SECONDS
 
+  // Whether GPS speed currently indicates driving. Edge-tracked so we only feed the controller on
+  // the enter/exit crossing (not every fix), otherwise a repeated STILL would perpetually re-arm
+  // its revert timer. Backs up Activity Recognition, which is blind to smooth constant-velocity
+  // cruising (it reports STILL); see DrivingSpeedTier.DRIVING_ENTER_KMH / DRIVING_EXIT_KMH.
+  private var speedIndicatesDriving = false
+
+  // Consecutive vehicular-speed fixes, used to override an active on-foot/cycling boost only once
+  // speed is sustained (see DrivingSpeedTier.DRIVING_OVERRIDE_CONFIRMATION_FIXES).
+  private var consecutiveDrivingSpeedFixes = 0
+
   private val callbackForReportType =
       mutableMapOf<MessageLocation.ReportType, Lazy<LocationCallbackWithReportType>>().apply {
         MessageLocation.ReportType.entries.forEach {
@@ -142,21 +152,74 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       }
 
   /**
-   * While the driving boost is active, re-tune the sampling interval from the fix's own speed: a
-   * longer interval at higher speed lets the GPS duty-cycle. Only re-issues the request on a band
-   * change (DrivingSpeedTier applies hysteresis), so steady driving doesn't churn it.
+   * Speed handling on the continuous DEFAULT location stream, two jobs:
+   * 1. While the driving boost is active, re-tune the sampling interval from the fix's own speed (a
+   *    longer interval at higher speed lets the GPS duty-cycle). Only re-issues the request on a
+   *    band change (DrivingSpeedTier applies hysteresis), so steady driving doesn't churn it.
+   * 2. Engage/disengage the driving boost from GPS speed when Activity Recognition misses it. AR is
+   *    accelerometer-based and reports STILL during smooth constant-velocity cruising, so speed is
+   *    the only reliable vehicle signal there. Only the enter/exit edge is fed to the controller
+   *    (so its revert timer isn't perpetually re-armed). With no on-foot/cycling boost active a
+   *    single vehicular-speed fix engages; to override an on-foot/cycling boost AR established it
+   *    takes sustained speed (DRIVING_OVERRIDE_CONFIRMATION_FIXES), and because a boost is already
+   *    active the controller switches profiles immediately — no entry dwell, no baseline dip.
    */
   private fun onDrivingLocationForTuning(location: Location) {
-    if (!preferences.locatorBoostedByDriving || !location.hasSpeed()) return
-    val newInterval =
-        DrivingSpeedTier.intervalSecondsForSpeed(
-            DrivingSpeedTier.mpsToKmh(location.speed), currentDrivingIntervalSeconds)
-    if (newInterval != currentDrivingIntervalSeconds) {
-      Timber.d(
-          "Driving speed ${"%.0f".format(DrivingSpeedTier.mpsToKmh(location.speed))} km/h; " +
-              "re-tuning interval ${currentDrivingIntervalSeconds}s -> ${newInterval}s")
-      currentDrivingIntervalSeconds = newInterval
-      setupLocationRequest()
+    if (!location.hasSpeed()) return
+    val speedKmh = DrivingSpeedTier.mpsToKmh(location.speed)
+
+    if (preferences.locatorBoostedByDriving) {
+      val newInterval =
+          DrivingSpeedTier.intervalSecondsForSpeed(speedKmh, currentDrivingIntervalSeconds)
+      if (newInterval != currentDrivingIntervalSeconds) {
+        Timber.d(
+            "Driving speed ${"%.0f".format(speedKmh)} km/h; " +
+                "re-tuning interval ${currentDrivingIntervalSeconds}s -> ${newInterval}s")
+        currentDrivingIntervalSeconds = newInterval
+        setupLocationRequest()
+      }
+    }
+
+    if (!preferences.autoMonitoringByActivity || !preferences.boostLocatorWhileDriving) {
+      consecutiveDrivingSpeedFixes = 0
+      return
+    }
+
+    if (speedKmh >= DrivingSpeedTier.DRIVING_ENTER_KMH) {
+      consecutiveDrivingSpeedFixes++
+    } else {
+      consecutiveDrivingSpeedFixes = 0
+    }
+
+    // Overriding an on-foot/cycling boost AR set demands sustained speed; engaging from no boost
+    // needs only one fix (the cold-start driving case).
+    val mayEngageDriving =
+        if (preferences.locatorBoostedByActivity) {
+          consecutiveDrivingSpeedFixes >= DrivingSpeedTier.DRIVING_OVERRIDE_CONFIRMATION_FIXES
+        } else {
+          consecutiveDrivingSpeedFixes >= 1
+        }
+
+    if (!speedIndicatesDriving && mayEngageDriving) {
+      val overridingOnFoot = preferences.locatorBoostedByActivity
+      Timber.i(
+          "GPS speed ${"%.0f".format(speedKmh)} km/h indicates driving; engaging driving boost " +
+              if (overridingOnFoot) "(overriding on-foot boost)"
+              else "(Activity Recognition reported no vehicle transition)")
+      speedIndicatesDriving = true
+      currentDrivingIntervalSeconds =
+          DrivingSpeedTier.intervalSecondsForSpeed(speedKmh, currentDrivingIntervalSeconds)
+      locationRepo.currentMotionActivities = DetectedActivityChange.IN_VEHICLE.toMotionActivities()
+      activityMonitoringModeController.onActivityChange(DetectedActivityChange.IN_VEHICLE)
+    } else if (speedIndicatesDriving && speedKmh < DrivingSpeedTier.DRIVING_EXIT_KMH) {
+      speedIndicatesDriving = false
+      // Only revert the boost we engaged from speed; if AR has since switched us to an on-foot /
+      // cycling boost, leave that alone (AR owns it).
+      if (preferences.locatorBoostedByDriving) {
+        Timber.i(
+            "GPS speed ${"%.0f".format(speedKmh)} km/h indicates a stop; arming driving-boost revert")
+        activityMonitoringModeController.onActivityChange(DetectedActivityChange.STILL)
+      }
     }
   }
 
@@ -178,6 +241,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
   // Decision engine for activity-triggered adaptive monitoring (opt-in autoMonitoringByActivity)
   private lateinit var activityMonitoringModeController: ActivityMonitoringModeController
+
+  // Whether we currently hold an activity-transition registration. Tracked so repeated
+  // setupAndStartService() calls within one process don't churn (remove+re-register) the GMS
+  // updates, which resets its transition detector and can drop transitions entirely.
+  private var activityUpdatesRegistered = false
 
   @EntryPoint
   @InstallIn(SingletonComponent::class)
@@ -292,6 +360,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     if (requirementsChecker.hasActivityRecognitionPermission()) {
       activityRecognitionClient.removeActivityUpdates()
     }
+    activityUpdatesRegistered = false
+    speedIndicatesDriving = false
+    consecutiveDrivingSpeedFixes = 0
     preferences.unregisterOnPreferenceChangedListener(this)
     messageProcessor.stopSendingMessages()
     super.onDestroy()
@@ -434,7 +505,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     messageProcessor.initialize()
   }
 
-  /** Registers/deregisters activity-transition updates per the opt-in preference and permission. */
+  /**
+   * Registers/deregisters activity-transition updates per the opt-in preference and permission.
+   * Idempotent within a process: only (de)registers on an actual state change, so the repeated
+   * setupAndStartService() calls a foreground app triggers don't churn the GMS registration.
+   */
   private fun setupActivityRecognition() {
     if (!requirementsChecker.hasActivityRecognitionPermission()) {
       if (preferences.autoMonitoringByActivity) {
@@ -444,10 +519,17 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       return
     }
     if (preferences.autoMonitoringByActivity) {
-      Timber.d("Activity-based adaptive monitoring enabled; requesting activity transition updates")
-      activityRecognitionClient.requestActivityUpdates()
-    } else {
+      if (activityUpdatesRegistered) {
+        Timber.d("Activity transition updates already registered; skipping")
+      } else {
+        Timber.d(
+            "Activity-based adaptive monitoring enabled; requesting activity transition updates")
+        activityRecognitionClient.requestActivityUpdates()
+        activityUpdatesRegistered = true
+      }
+    } else if (activityUpdatesRegistered) {
       activityRecognitionClient.removeActivityUpdates()
+      activityUpdatesRegistered = false
       // Stop attaching a now-stale activity to outgoing locations.
       locationRepo.currentMotionActivities = null
     }
@@ -724,6 +806,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       setupActivityRecognition()
       if (!preferences.autoMonitoringByActivity) {
         activityMonitoringModeController.onFeatureDisabled()
+        speedIndicatesDriving = false
+        consecutiveDrivingSpeedFixes = 0
       }
     }
     if (properties.intersect(PREFERENCES_THAT_WIPE_QUEUE_AND_CONTACTS).isNotEmpty()) {

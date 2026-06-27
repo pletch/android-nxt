@@ -58,6 +58,7 @@ import javax.inject.Inject
 import javax.inject.Named
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import org.owntracks.android.BuildConfig
 import org.owntracks.android.R
 import org.owntracks.android.databinding.UiMapBinding
 import org.owntracks.android.location.roundForDisplay
@@ -72,6 +73,7 @@ import org.owntracks.android.test.SimpleIdlingResource
 import org.owntracks.android.test.ThresholdIdlingResourceInterface
 import org.owntracks.android.ui.DrawerProvider
 import org.owntracks.android.ui.NotificationsStash
+import org.owntracks.android.ui.mixins.ActivityRecognitionPermissionRequester
 import org.owntracks.android.ui.mixins.AppBarInsetHandler
 import org.owntracks.android.ui.mixins.BackgroundLocationPermissionRequester
 import org.owntracks.android.ui.mixins.LocationPermissionRequester
@@ -104,6 +106,12 @@ class MapActivity :
           this,
           ::backgroundLocationPermissionGranted,
           ::backgroundLocationPermissionDenied,
+      )
+  private val activityRecognitionPermissionRequester =
+      ActivityRecognitionPermissionRequester(
+          this,
+          ::activityRecognitionPermissionGranted,
+          ::activityRecognitionPermissionDenied,
       )
   private var service: BackgroundService? = null
   private var bottomSheetBehavior: BottomSheetBehavior<LinearLayoutCompat>? = null
@@ -519,6 +527,26 @@ class MapActivity :
   }
 
   /**
+   * User has granted the activity-recognition permission. Restart the service so it actually
+   * registers for activity-transition updates now that the permission is available.
+   */
+  private fun activityRecognitionPermissionGranted() {
+    Timber.d("Activity recognition permission granted; restarting service to register for updates")
+    startService(this)
+  }
+
+  /**
+   * User has declined the activity-recognition permission. The feature can't function without it,
+   * so turn it off rather than leave a dead toggle enabled (this also stops us re-prompting, since
+   * the request is only raised while the feature is on). They can re-enable it in settings, which
+   * re-requests the permission.
+   */
+  private fun activityRecognitionPermissionDenied() {
+    Timber.d("Activity recognition permission denied; disabling activity-based monitoring")
+    preferences.autoMonitoringByActivity = false
+  }
+
+  /**
    * User has granted permission. If It's location, ask the viewmodel to start requesting locations,
    * set the [MapViewModel.ViewMode] to [MapViewModel.ViewMode.Device] and tell the service to
    * reinitialize locations.
@@ -673,6 +701,28 @@ class MapActivity :
     }
   }
 
+  /**
+   * Activity-based adaptive monitoring ([Preferences.autoMonitoringByActivity]) needs the
+   * `ACTIVITY_RECOGNITION` runtime permission. The settings screen requests it when the user flips
+   * the toggle, but a config import (or restore after a reinstall) can enable the preference without
+   * ever going through that path, leaving the feature silently inactive. Catch that case here so the
+   * permission is requested whenever the feature is on but the permission is missing.
+   */
+  private fun checkAndRequestActivityRecognitionPermissions(): CheckPermissionsResult {
+    // Activity Recognition is a Play Services API; the feature does nothing on the oss flavour.
+    if (BuildConfig.FLAVOR != "gms" || !preferences.autoMonitoringByActivity) {
+      return CheckPermissionsResult.HAS_PERMISSIONS
+    }
+    Timber.d("Checking and requesting activity recognition permissions")
+    return if (!requirementsChecker.hasActivityRecognitionPermission()) {
+      Timber.d("No activity recognition permission; requesting")
+      activityRecognitionPermissionRequester.requestPermission()
+      CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST
+    } else {
+      CheckPermissionsResult.HAS_PERMISSIONS
+    }
+  }
+
   override fun onResume() {
     if (supportFragmentManager.findFragmentByTag("map") == null) {
       val mapFragment =
@@ -705,6 +755,11 @@ class MapActivity :
     if (checkAndRequestBackgroundLocationPermissions() ==
         CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST) {
       Timber.d("Launched background location permission request")
+      return
+    }
+    if (checkAndRequestActivityRecognitionPermissions() ==
+        CheckPermissionsResult.NO_PERMISSIONS_LAUNCHED_REQUEST) {
+      Timber.d("Launched activity recognition permission request")
       return
     }
     if (checkAndRequestLocationServicesEnabled(false)) {

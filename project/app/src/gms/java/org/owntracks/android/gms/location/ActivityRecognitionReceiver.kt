@@ -1,8 +1,11 @@
 package org.owntracks.android.gms.location
 
+import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.google.android.gms.location.ActivityRecognition
+import com.google.android.gms.location.ActivityRecognitionResult
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
@@ -12,16 +15,21 @@ import org.owntracks.android.ui.mixins.ServiceStarter
 import timber.log.Timber
 
 /**
- * Receives activity-transition events from Google Play Services, logs them, and forwards the
- * on-foot / in-vehicle / still ENTER transitions to [BackgroundService] (as
- * [DetectedActivityChange] ordinals) — keeping GMS types out of `main`.
+ * Receives activity events from Google Play Services and forwards them to [BackgroundService] (as
+ * [DetectedActivityChange] ordinals) — keeping GMS types out of `main`. Handles two delivery types:
+ * the ongoing ENTER/EXIT transitions, and the one-shot current-activity sample requested at
+ * registration to seed an activity already in progress (see [GMSActivityRecognitionClient]).
  */
 class ActivityRecognitionReceiver : BroadcastReceiver(), ServiceStarter by ServiceStarter.Impl() {
   override fun onReceive(context: Context, intent: Intent) {
-    if (!ActivityTransitionResult.hasResult(intent)) {
-      Timber.d("Received intent without an activity transition result; ignoring")
-      return
+    when {
+      ActivityTransitionResult.hasResult(intent) -> handleTransitionResult(context, intent)
+      ActivityRecognitionResult.hasResult(intent) -> handleSampleResult(context, intent)
+      else -> Timber.d("Received intent without an activity result; ignoring")
     }
+  }
+
+  private fun handleTransitionResult(context: Context, intent: Intent) {
     val result = ActivityTransitionResult.extractResult(intent) ?: return
     val changeOrdinals = mutableListOf<Int>()
     result.transitionEvents.forEach { event ->
@@ -32,6 +40,31 @@ class ActivityRecognitionReceiver : BroadcastReceiver(), ServiceStarter by Servi
         activityChange(event.activityType)?.let { changeOrdinals.add(it.ordinal) }
       }
     }
+    forwardChanges(context, changeOrdinals)
+  }
+
+  /**
+   * Handles the one-shot current-activity sample: cancel the sampling updates (so it stays
+   * one-shot), then forward the most-probable activity if it's confident enough and one we track.
+   */
+  @SuppressLint("MissingPermission")
+  private fun handleSampleResult(context: Context, intent: Intent) {
+    ActivityRecognition.getClient(context)
+        .removeActivityUpdates(GMSActivityRecognitionClient.getSamplePendingIntent(context))
+    val result = ActivityRecognitionResult.extractResult(intent) ?: return
+    val mostProbable = result.mostProbableActivity
+    Timber.i(
+        "Current-activity sample: ${activityName(mostProbable.type)} " +
+            "(confidence=${mostProbable.confidence})")
+    if (mostProbable.confidence < MIN_SAMPLE_CONFIDENCE) {
+      Timber.d("Current-activity sample below confidence threshold; not seeding")
+      return
+    }
+    val change = activityChange(mostProbable.type) ?: return
+    forwardChanges(context, mutableListOf(change.ordinal))
+  }
+
+  private fun forwardChanges(context: Context, changeOrdinals: List<Int>) {
     if (changeOrdinals.isNotEmpty()) {
       startService(
           context,
@@ -71,4 +104,10 @@ class ActivityRecognitionReceiver : BroadcastReceiver(), ServiceStarter by Servi
         ActivityTransition.ACTIVITY_TRANSITION_EXIT -> "EXIT"
         else -> "UNKNOWN($type)"
       }
+
+  companion object {
+    // Only seed from a sample we're reasonably sure about, so a low-confidence guess (the API
+    // reports 0-100) can't spuriously boost the locator.
+    private const val MIN_SAMPLE_CONFIDENCE = 50
+  }
 }

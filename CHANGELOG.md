@@ -26,6 +26,11 @@ This release addresses a security advisory covering several intent-handling vuln
 
 - DEBUG and VERBOSE log messages are no longer emitted to the system Logcat in release builds, preventing potential PII (e.g. coordinates) leakage via `TimberInMemoryLogTree` (CWE-532)
 - HTTP mode no longer treats an unparsable or empty response body as a send failure. A `200 OK` response is sufficient to confirm a message was delivered successfully; response body parse errors are logged as warnings and ignored (#2242)
+- Activity-triggered adaptive monitoring now requests the Physical Activity permission when the feature is enabled via an imported/restored config (previously only the in-app toggle prompted for it, so a reinstall-and-restore left the feature silently inactive); declining the permission now switches the feature off rather than leaving an enabled-but-non-functional toggle
+- Activity-triggered adaptive monitoring now detects an activity already in progress when monitoring starts (e.g. launching or reinstalling mid-drive) by sampling the current activity at registration, instead of waiting for a transition that never comes
+- The activity-transition registration is no longer torn down and re-created on every service restart, which could reset Play Services' transition detector and drop transitions
+- The driving locator boost now also engages from GPS speed, not just Activity Recognition. Activity Recognition is accelerometer-based and can report STILL during smooth constant-velocity highway driving, so the boost could fail to engage; sustained vehicle-level speed now triggers (and a stop releases) it, while AR still drives walking/cycling detection
+- Walking-then-driving now hands off seamlessly: sustained vehicular speed switches an active on-foot boost straight to the driving profile (no drop to baseline and no re-entry dwell in between), with a short confirmation so a brief fast descent on a bike isn't misread as driving
 
 
 ## Version 2.5.10
