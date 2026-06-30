@@ -218,6 +218,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       if (preferences.locatorBoostedByDriving) {
         Timber.i(
             "GPS speed ${"%.0f".format(speedKmh)} km/h indicates a stop; arming driving-boost revert")
+        // Clear the speed-engaged "automotive" so published motionactivities doesn't go stale: we
+        // engaged driving from GPS speed because AR never saw us enter the vehicle, so AR will emit
+        // no exit transition to overwrite it — without this the last fix keeps re-publishing
+        // "automotive" for hours after we've parked.
+        locationRepo.currentMotionActivities = DetectedActivityChange.STILL.toMotionActivities()
         activityMonitoringModeController.onActivityChange(DetectedActivityChange.STILL)
       }
     }

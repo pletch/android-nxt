@@ -31,6 +31,7 @@ This release addresses a security advisory covering several intent-handling vuln
 - The activity-transition registration is no longer torn down and re-created on every service restart, which could reset Play Services' transition detector and drop transitions
 - The driving locator boost now also engages from GPS speed, not just Activity Recognition. Activity Recognition is accelerometer-based and can report STILL during smooth constant-velocity highway driving, so the boost could fail to engage; sustained vehicle-level speed now triggers (and a stop releases) it, while AR still drives walking/cycling detection
 - Walking-then-driving now hands off seamlessly: sustained vehicular speed switches an active on-foot boost straight to the driving profile (no drop to baseline and no re-entry dwell in between), with a short confirmation so a brief fast descent on a bike isn't misread as driving
+- The published `motionactivities` no longer gets stuck on `automotive` after a speed-engaged drive ends. Because driving was detected from GPS speed (Activity Recognition never saw the vehicle), AR emitted no exit transition to clear it, so every periodic location ping kept re-publishing `automotive` for hours after parking; a stop now clears the activity to `stationary`
 
 
 ## Version 2.5.10
