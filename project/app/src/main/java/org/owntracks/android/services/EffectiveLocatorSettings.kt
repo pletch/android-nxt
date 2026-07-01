@@ -21,7 +21,8 @@ const val DRIVING_BOOST_DISPLACEMENT_METRES = 50
  * (and not in Move mode) the locator is elevated to high accuracy: on foot with the configured
  * on-foot interval/displacement, or driving with the speed-tiered [drivingIntervalSeconds] (see
  * [DrivingSpeedTier]) and a small displacement floor. Otherwise the configured per-mode settings
- * apply.
+ * apply, except that in Significant mode [useGnssInSignificantMode] elevates the default priority to
+ * high accuracy (so Android 16+ keeps using GNSS) unless an explicit [locatorPriority] is set.
  */
 fun effectiveLocatorSettings(
     monitoring: MonitoringMode,
@@ -34,6 +35,7 @@ fun effectiveLocatorSettings(
     activityOnFootLocatorDisplacement: Int,
     boostedByDriving: Boolean = false,
     drivingIntervalSeconds: Int = DrivingSpeedTier.DEFAULT_INTERVAL_SECONDS,
+    useGnssInSignificantMode: Boolean = false,
 ): EffectiveLocatorSettings {
   if (boostedByActivity && monitoring != MonitoringMode.Move) {
     return EffectiveLocatorSettings(
@@ -52,7 +54,9 @@ fun effectiveLocatorSettings(
             locatorPriority ?: LocatorPriority.LowPower, locatorInterval, locatorDisplacement)
     MonitoringMode.Significant ->
         EffectiveLocatorSettings(
-            locatorPriority ?: LocatorPriority.BalancedPowerAccuracy,
+            locatorPriority
+                ?: if (useGnssInSignificantMode) LocatorPriority.HighAccuracy
+                else LocatorPriority.BalancedPowerAccuracy,
             locatorInterval,
             locatorDisplacement)
     MonitoringMode.Move ->

@@ -705,7 +705,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
               preferences.activityOnFootLocatorInterval,
               preferences.activityOnFootLocatorDisplacement,
               preferences.locatorBoostedByDriving,
-              currentDrivingIntervalSeconds)
+              currentDrivingIntervalSeconds,
+              // QPR1 (where balanced-accuracy stopped using GNSS, per #2155) isn't separately
+              // detectable from the Android 16 GA release, so we gate on Android 16+ generally.
+              Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
+                  preferences.useGNSSInSignificantMonitoringMode)
       val interval = Duration.ofSeconds(settings.intervalSeconds.toLong())
       val smallestDisplacement = settings.smallestDisplacement?.toFloat()
       val priority = settings.priority

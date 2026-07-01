@@ -13,6 +13,7 @@ class EffectiveLocatorSettingsTest {
       locatorPriority: LocatorPriority? = null,
       boostedByDriving: Boolean = false,
       drivingIntervalSeconds: Int = 18,
+      useGnssInSignificantMode: Boolean = false,
   ) =
       effectiveLocatorSettings(
           monitoring = monitoring,
@@ -24,7 +25,8 @@ class EffectiveLocatorSettingsTest {
           activityOnFootLocatorInterval = 25,
           activityOnFootLocatorDisplacement = 30,
           boostedByDriving = boostedByDriving,
-          drivingIntervalSeconds = drivingIntervalSeconds)
+          drivingIntervalSeconds = drivingIntervalSeconds,
+          useGnssInSignificantMode = useGnssInSignificantMode)
 
   @Test
   fun `significant mode uses balanced accuracy with the configured interval and displacement`() {
@@ -32,6 +34,25 @@ class EffectiveLocatorSettingsTest {
     assertEquals(LocatorPriority.BalancedPowerAccuracy, s.priority)
     assertEquals(60, s.intervalSeconds)
     assertEquals(500, s.smallestDisplacement)
+  }
+
+  @Test
+  fun `significant mode uses high accuracy when the GNSS-in-significant option is enabled`() {
+    val s = compute(MonitoringMode.Significant, boosted = false, useGnssInSignificantMode = true)
+    assertEquals(LocatorPriority.HighAccuracy, s.priority)
+    assertEquals(60, s.intervalSeconds)
+    assertEquals(500, s.smallestDisplacement)
+  }
+
+  @Test
+  fun `an explicit locatorPriority still overrides the GNSS-in-significant option`() {
+    val s =
+        compute(
+            MonitoringMode.Significant,
+            boosted = false,
+            locatorPriority = LocatorPriority.LowPower,
+            useGnssInSignificantMode = true)
+    assertEquals(LocatorPriority.LowPower, s.priority)
   }
 
   @Test

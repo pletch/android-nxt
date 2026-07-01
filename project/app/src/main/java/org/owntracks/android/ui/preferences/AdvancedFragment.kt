@@ -4,6 +4,7 @@ import android.Manifest.permission.ACCESS_FINE_LOCATION
 import android.content.Context
 import android.content.Intent
 import android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS
 import android.widget.TextView
@@ -12,7 +13,6 @@ import androidx.core.net.toUri
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.SwitchPreferenceCompat
-import org.owntracks.android.location.LocatorPriority
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -114,14 +114,8 @@ class AdvancedFragment @Inject constructor() :
         }
     refreshActivityRecognitionPreciseWarning()
 
-    findPreference<SwitchPreferenceCompat>("useGnss")?.apply {
-      isChecked = preferences.locatorPriority == LocatorPriority.HighAccuracy
-      onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, newValue ->
-        preferences.locatorPriority =
-            if (newValue as Boolean) LocatorPriority.HighAccuracy else null
-        true
-      }
-    }
+    findPreference<SwitchPreferenceCompat>(Preferences::useGNSSInSignificantMonitoringMode.name)
+        ?.isVisible = Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA
 
     findPreference<ListPreference>(Preferences::reverseGeocodeProvider.name)
         ?.onPreferenceChangeListener =
@@ -181,10 +175,6 @@ class AdvancedFragment @Inject constructor() :
     }
     if (properties.contains(Preferences::autoMonitoringByActivity.name)) {
       refreshActivityRecognitionPreciseWarning()
-    }
-    if (properties.contains(Preferences::locatorPriority.name)) {
-      findPreference<SwitchPreferenceCompat>("useGnss")?.isChecked =
-          preferences.locatorPriority == LocatorPriority.HighAccuracy
     }
   }
 

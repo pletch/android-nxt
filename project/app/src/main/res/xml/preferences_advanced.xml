@@ -96,10 +96,9 @@
             app:title="@string/preferencesActivityRevertDelay" />
         <androidx.preference.SwitchPreferenceCompat
             app:iconSpaceReserved="false"
-            app:key="useGnss"
-            app:persistent="false"
-            app:summary="@string/preferencesGnssInSignificantModeSummary"
-            app:title="@string/preferencesGnssInSignificantMode" />
+            app:key="useGNSSInSignificantMonitoringMode"
+            app:summary="@string/preferencesUseGNSSInSignificantMonitoringModeSummary"
+            app:title="@string/preferencesUseGNSSInSignificantMonitoringMode" />
     </androidx.preference.PreferenceCategory>
     <androidx.preference.PreferenceCategory
         app:iconSpaceReserved="false"
