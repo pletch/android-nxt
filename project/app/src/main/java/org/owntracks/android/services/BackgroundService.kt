@@ -797,7 +797,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             Preferences::locatorBoostedByActivity.name,
             Preferences::locatorBoostedByDriving.name,
             Preferences::activityOnFootLocatorInterval.name,
-            Preferences::activityOnFootLocatorDisplacement.name)
+            Preferences::activityOnFootLocatorDisplacement.name,
+            Preferences::useGNSSInSignificantMonitoringMode.name)
     if (propertiesWeCareAbout
         .stream()
         .filter { o: String -> properties.contains(o) }
