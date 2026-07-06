@@ -33,6 +33,7 @@ This release addresses a security advisory covering several intent-handling vuln
 - Walking-then-driving now hands off seamlessly: sustained vehicular speed switches an active on-foot boost straight to the driving profile (no drop to baseline and no re-entry dwell in between), with a short confirmation so a brief fast descent on a bike isn't misread as driving
 - The published `motionactivities` no longer gets stuck on `automotive` after a speed-engaged drive ends. Because driving was detected from GPS speed (Activity Recognition never saw the vehicle), AR emitted no exit transition to clear it, so every periodic location ping kept re-publishing `automotive` for hours after parking; a stop now clears the activity to `stationary`
 - Fix geofences silently failing to register with Google Play Services on devices with significant uptime, due to a `Long.MAX_VALUE` overflow when computing the expiration time (#2245, thanks [@Cooad](https://github.com/Cooad))
+- Waypoint editing had a race when loading the existing waypoint from Room, causing UI overwrites and other inconsistent behaviour. Fixed by only enabling the UI once the waypoint is loaded (#2130)
 
 
 ## Version 2.5.10
