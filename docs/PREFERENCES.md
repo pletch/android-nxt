@@ -452,8 +452,9 @@ These settings apply only when using HTTP mode (`mode=3`).
 - **Default**: Empty set
 - **MQTT**: ✓ | **HTTP**: ✓
 - **Description**: Set of experimental feature flags. Available features:
-  - `showExperimentalPreferenceUI`: Show experimental settings in UI
   - `locationPingUsesHighAccuracyLocationRequest`: Use high accuracy for ping requests
+  - `requestLocationOnSignificantMotion`: Request a location fix when the significant-motion sensor fires
+  - `smoothLocationsWithKalmanFilter`: Smooth the continuous location stream with a Kalman filter
 
 ---
 

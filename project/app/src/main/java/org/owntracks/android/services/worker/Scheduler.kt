@@ -56,7 +56,14 @@ constructor(
     workManager.cancelAllWorkByTag(PERIODIC_TASK_SEND_LOCATION_PING)
   }
 
-  fun scheduleMqttReconnect() =
+  /**
+   * [expedite] replaces any already-scheduled reconnect job (which may be minutes-to-hours out on
+   * WorkManager's grown retry backoff) with a fresh near-immediate one. Use it for genuine new
+   * signals that the connection is wanted *now* — queued outbound work, a wedged publish — and
+   * never from a failure path, where replacing the retrying job would reset its backoff to the
+   * first attempt on every failure.
+   */
+  fun scheduleMqttReconnect(expedite: Boolean = false) =
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             OneTimeWorkRequest.Builder(MQTTReconnectWorker::class.java)
                 // Pause in case there's network turmoil
@@ -75,9 +82,18 @@ constructor(
                 .build()
           }
           .run {
+            // KEEP by default: this is called both to arrange a fresh retry and, redundantly,
+            // from inside a failed attempt of the retry job itself (MQTTReconnectWorker's own
+            // connect() failure). REPLACE there would swap out the in-flight/pending job for a
+            // brand new one on every failure, resetting WorkManager's exponential backoff back to
+            // its first attempt each time instead of letting it grow. KEEP leaves an
+            // already-scheduled job alone and only enqueues when none exists; expedite (see KDoc)
+            // is the escape hatch for nudges that must not wait out a grown backoff.
             workManager.enqueueUniqueWork(
-                ONETIME_TASK_MQTT_RECONNECT, ExistingWorkPolicy.REPLACE, this)
-            Timber.d("Scheduled ONETIME_TASK_MQTT_RECONNECT job")
+                ONETIME_TASK_MQTT_RECONNECT,
+                if (expedite) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                this)
+            Timber.d("Scheduled ONETIME_TASK_MQTT_RECONNECT job (expedite=$expedite)")
           }
 
   companion object {

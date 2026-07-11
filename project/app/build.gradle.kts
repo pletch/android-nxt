@@ -234,6 +234,7 @@ dependencies {
   implementation(libs.bundles.kotlin)
   implementation(libs.bundles.androidx)
   implementation(libs.androidx.test.espresso.idling)
+  implementation(project(":location-kalman"))
 
   implementation(libs.google.material)
 

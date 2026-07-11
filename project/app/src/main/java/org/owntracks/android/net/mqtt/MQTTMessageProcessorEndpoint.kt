@@ -15,6 +15,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.KeyStore
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -73,6 +74,13 @@ class MQTTMessageProcessorEndpoint(
   private var client: Mqtt3AsyncClient? = null
   private var connectionConfiguration: MqttConnectionConfiguration? = null
 
+  // Identifies which built client is current, so a connected/disconnected callback that arrives
+  // late from an already-superseded client (e.g. its connect() timed out and was abandoned while
+  // the socket was still tearing down) can be told apart from one for the client we're actually
+  // using now, instead of clobbering its state.
+  private val clientGeneration = AtomicLong(0)
+  @Volatile private var currentClientGeneration = 0L
+
   internal val networkChangeCallback =
       NetworkTrackingCallback(
           { endpointStateRepo.endpointState.value },
@@ -112,8 +120,15 @@ class MQTTMessageProcessorEndpoint(
   }
 
   // Fires on every (re)connect. Subscriptions don't survive a reconnect, so (re)subscribe here.
-  private val connectedListener = MqttClientConnectedListener {
+  // Built fresh per client (see [clientGeneration]) so a callback that fires late, after the
+  // client it belongs to has already been superseded, can recognise itself as stale and no-op
+  // rather than acting on state that no longer reflects the client that's actually in use.
+  private fun connectedListenerFor(generation: Long) = MqttClientConnectedListener {
     scope.launch {
+      if (generation != currentClientGeneration) {
+        Timber.d("Ignoring connected callback from a superseded MQTT client")
+        return@launch
+      }
       endpointStateRepo.setState(EndpointState.CONNECTED)
       val c = client ?: return@launch
       val config = connectionConfiguration ?: return@launch
@@ -140,9 +155,21 @@ class MQTTMessageProcessorEndpoint(
     }
   }
 
-  private val disconnectedListener = MqttClientDisconnectedListener { context ->
+  private fun disconnectedListenerFor(generation: Long) = MqttClientDisconnectedListener { context
+    ->
+    if (generation != currentClientGeneration) {
+      Timber.d(
+          "Ignoring disconnected callback from a superseded MQTT client (source=${context.source})")
+      return@MqttClientDisconnectedListener
+    }
     Timber.w(context.cause, "MQTT disconnected (source=${context.source})")
-    scope.launch { endpointStateRepo.setState(EndpointState.DISCONNECTED) }
+    scope.launch {
+      // Re-check at execution time: the scope is multi-threaded, so this launch can be dispatched
+      // arbitrarily late — after a newer client has already connected and set CONNECTED — and an
+      // unconditional DISCONNECTED here would strand the endpoint state while actually connected.
+      if (generation != currentClientGeneration) return@launch
+      endpointStateRepo.setState(EndpointState.DISCONNECTED)
+    }
     // We own reconnection now that HiveMQ auto-reconnect is off. Schedule a reconnect for any drop
     // or failed connect we didn't initiate ourselves (a USER source is our own disconnect()).
     if (context.source != MqttDisconnectSource.USER) {
@@ -156,14 +183,29 @@ class MQTTMessageProcessorEndpoint(
         endpointStateRepo.setState(EndpointState.CONNECTING)
         mqttConnectionIdlingResource.setIdleState(false)
         try {
+          val generation = clientGeneration.incrementAndGet()
           val newClient =
               withContext(ioDispatcher) {
                 config.buildClient(
-                    applicationContext, caKeyStore, connectedListener, disconnectedListener)
+                    applicationContext,
+                    caKeyStore,
+                    connectedListenerFor(generation),
+                    disconnectedListenerFor(generation))
               }
           client = newClient
+          currentClientGeneration = generation
           connectionConfiguration = config
-          newClient.publishes(MqttGlobalPublishFilter.ALL) { onIncomingPublish(it) }
+          // Generation-tagged like the lifecycle listeners: a superseded client whose graceful
+          // disconnect timed out (or whose abandoned connect completed late) can still be
+          // connected and receiving broker publishes for a while — those must not be processed
+          // alongside the current client's.
+          newClient.publishes(MqttGlobalPublishFilter.ALL) { publish ->
+            if (generation == currentClientGeneration) {
+              onIncomingPublish(publish)
+            } else {
+              Timber.d("Ignoring publish delivered by a superseded MQTT client")
+            }
+          }
           Timber.d("Connecting to ${config.host}:${config.port}")
           // Bound the attempt so a stalled connect can never hold connectingLock indefinitely
           // (which previously wedged all reconnects until the process was killed).
@@ -236,10 +278,12 @@ class MQTTMessageProcessorEndpoint(
     Timber.d("Sending message $message")
     val c = client ?: return Result.failure(NotReadyException())
     if (endpointStateRepo.endpointState.value != EndpointState.CONNECTED) {
-      // We have outbound work but aren't connected. Nudge a reconnect (deduped) so a stranded
-      // DISCONNECTED state — e.g. a network change whose recovery was missed — can't leave the
-      // queue backing off forever with nothing trying to restore the connection.
-      scheduler.scheduleMqttReconnect()
+      // We have outbound work but aren't connected. Nudge a reconnect so a stranded DISCONNECTED
+      // state — e.g. a network change whose recovery was missed — can't leave the queue backing
+      // off forever with nothing trying to restore the connection. Expedited: a retry job parked
+      // on a grown WorkManager backoff (broker was down for a while) must not make queued work
+      // wait out the remaining hours.
+      scheduler.scheduleMqttReconnect(expedite = true)
       return Result.failure(NotConnectedException())
     }
     message.annotateFromPreferences(preferences)
@@ -270,7 +314,7 @@ class MQTTMessageProcessorEndpoint(
       // again — and the new client wakes the loop via the connected listener's queue notify.
       if (e is TimeoutException) {
         Timber.w("Publish timed out; forcing reconnect so the retry uses a fresh client")
-        scheduler.scheduleMqttReconnect()
+        scheduler.scheduleMqttReconnect(expedite = true)
       }
       Result.failure(OutgoingMessageSendingException(e))
     }

@@ -183,6 +183,8 @@ To allow this, please enable Location in the device settings."</string>
     <string name="preferencesBoostLocatorWhileDriving">"Boost while driving"</string>
     <string name="preferencesBoostLocatorWhileDrivingSummary">"Also boost accuracy while driving, tuning how often it samples to your speed so the GPS can rest at highway speeds."</string>
     <string name="preferencesAutoMonitoringByActivityPermissionDenied">"Physical activity permission is required for activity-based monitoring"</string>
+    <string name="preferencesAutoMonitoringByActivityPermissionSettingsTitle">"Activity permission off"</string>
+    <string name="preferencesAutoMonitoringByActivityPermissionSettingsMessage">"Physical activity permission cannot be requested again from here. Open the app settings to grant it."</string>
     <string name="preferencesAutoMonitoringByActivityPreciseSettingsButton">"App settings"</string>
     <string name="preferencesAutoMonitoringByActivityPreciseSettingsMessage">"Precise location cannot be requested again from here. Open the app settings to switch location from Approximate to Precise."</string>
     <string name="preferencesAutoMonitoringByActivityPreciseSettingsTitle">"Precise location off"</string>

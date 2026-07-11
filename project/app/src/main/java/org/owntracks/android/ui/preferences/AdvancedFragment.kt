@@ -1,6 +1,7 @@
 package org.owntracks.android.ui.preferences
 
 import android.Manifest.permission.ACCESS_FINE_LOCATION
+import android.Manifest.permission.ACTIVITY_RECOGNITION
 import android.content.Context
 import android.content.Intent
 import android.content.Intent.FLAG_ACTIVITY_NEW_TASK
@@ -9,6 +10,7 @@ import android.os.Bundle
 import android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS
 import android.widget.TextView
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.core.net.toUri
 import androidx.preference.ListPreference
 import androidx.preference.Preference
@@ -154,7 +156,17 @@ class AdvancedFragment @Inject constructor() :
             R.string.preferencesAutoMonitoringByActivityPermissionDenied,
             Toast.LENGTH_LONG)
         .show()
+    // Permanently denied ("don't ask again", or a prior denial): the system won't prompt again,
+    // so Settings is the only path left — same as the precise-location flow below.
+    if (isAdded && !shouldShowRequestPermissionRationale(ACTIVITY_RECOGNITION)) {
+      promptOpenAppSettingsForActivityRecognition()
+    }
   }
+
+  private fun promptOpenAppSettingsForActivityRecognition() =
+      promptOpenAppSettings(
+          R.string.preferencesAutoMonitoringByActivityPermissionSettingsTitle,
+          R.string.preferencesAutoMonitoringByActivityPermissionSettingsMessage)
 
   private fun setOpenCageAPIKeyPreferenceVisibility() {
     setOf(Preferences::opencageApiKey.name, "opencagePrivacy").forEach {
@@ -188,10 +200,16 @@ class AdvancedFragment @Inject constructor() :
     }
   }
 
-  private fun promptOpenAppSettingsForPreciseLocation() {
+  private fun promptOpenAppSettingsForPreciseLocation() =
+      promptOpenAppSettings(
+          R.string.preferencesAutoMonitoringByActivityPreciseSettingsTitle,
+          R.string.preferencesAutoMonitoringByActivityPreciseSettingsMessage)
+
+  /** Last-resort path when a permission is permanently denied: send the user to app Settings. */
+  private fun promptOpenAppSettings(@StringRes titleRes: Int, @StringRes messageRes: Int) {
     MaterialAlertDialogBuilder(requireContext())
-        .setTitle(R.string.preferencesAutoMonitoringByActivityPreciseSettingsTitle)
-        .setMessage(R.string.preferencesAutoMonitoringByActivityPreciseSettingsMessage)
+        .setTitle(titleRes)
+        .setMessage(messageRes)
         .setPositiveButton(R.string.preferencesAutoMonitoringByActivityPreciseSettingsButton) { _, _
           ->
           startActivity(

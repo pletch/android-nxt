@@ -117,8 +117,11 @@ class ActivityMonitoringModeController(
   @Synchronized
   private fun onEntryDwellElapsed(onFoot: Boolean) {
     entryJob = null
-    // State may have changed during the dwell (mode change, permission revoked).
+    // State may have changed during the dwell (mode change, permission revoked, or the driving
+    // toggle switched off — onDrivingBoostFeatureDisabled can't cancel a pending entry because it
+    // only acts once a boost flag is set, so re-check here).
     if (preferences.monitoring == MonitoringMode.Move || !hasPreciseLocation()) return
+    if (!onFoot && !preferences.boostLocatorWhileDriving) return
     Timber.i("Entry dwell elapsed; boosting locator to high accuracy")
     applyBoost(onFoot)
   }
@@ -185,6 +188,20 @@ class ActivityMonitoringModeController(
     cancelPendingEntry()
     cancelPendingRevert()
     clearBoost()
+  }
+
+  /**
+   * Clears an active driving boost immediately, e.g. when [Preferences.boostLocatorWhileDriving]
+   * is switched off mid-drive. Unlike [onFeatureDisabled], leaves an active on-foot/cycling boost
+   * untouched, since that boost may be unrelated to the driving toggle.
+   */
+  @Synchronized
+  fun onDrivingBoostFeatureDisabled() {
+    if (preferences.locatorBoostedByDriving) {
+      cancelPendingRevert()
+      Timber.i("Reverting driving locator boost (feature disabled)")
+      preferences.locatorBoostedByDriving = false
+    }
   }
 
   /**

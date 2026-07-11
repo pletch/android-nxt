@@ -257,6 +257,34 @@ class ActivityMonitoringModeControllerTest {
   }
 
   @Test
+  fun `a driving entry dwell does not boost after the driving toggle is switched off`() = runTest {
+    preferences.activityEntryDelaySeconds = ENTRY_DELAY_SECONDS
+    val controller = ActivityMonitoringModeController(preferences, backgroundScope)
+
+    controller.onActivityChange(DetectedActivityChange.IN_VEHICLE) // dwell armed
+    preferences.boostLocatorWhileDriving = false // user opts out mid-dwell
+    controller.onDrivingBoostFeatureDisabled() // what the preference-change handler calls
+
+    advanceTimeBy(ENTRY_DELAY_SECONDS * 1000L + 1000L)
+    runCurrent()
+    assertFalse(preferences.locatorBoostedByDriving)
+  }
+
+  @Test
+  fun `the driving toggle does not affect a pending on-foot entry dwell`() = runTest {
+    preferences.activityEntryDelaySeconds = ENTRY_DELAY_SECONDS
+    val controller = ActivityMonitoringModeController(preferences, backgroundScope)
+
+    controller.onActivityChange(DetectedActivityChange.ON_FOOT) // dwell armed
+    preferences.boostLocatorWhileDriving = false
+    controller.onDrivingBoostFeatureDisabled()
+
+    advanceTimeBy(ENTRY_DELAY_SECONDS * 1000L + 1000L)
+    runCurrent()
+    assertTrue(preferences.locatorBoostedByActivity)
+  }
+
+  @Test
   fun `detected activity maps to the OwnTracks motionactivities vocabulary`() {
     assertEquals(listOf("walking"), DetectedActivityChange.ON_FOOT.toMotionActivities())
     assertEquals(listOf("automotive"), DetectedActivityChange.IN_VEHICLE.toMotionActivities())

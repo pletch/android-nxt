@@ -54,6 +54,9 @@ interface DefaultsProvider {
       Preferences::locatorDisplacement -> 500
       Preferences::locatorInterval -> 60
       Preferences::locatorPriority -> null
+      // Generous enough to cover commercial-flight tracking; only rejects genuine "teleport"
+      // jumps (e.g. a cell-tower/network location bounce).
+      Preferences::maxImplausibleSpeedKmh -> 1000
       Preferences::useGNSSInSignificantMonitoringMode -> false
       Preferences::mode -> ConnectionMode.MQTT
       Preferences::monitoring -> MonitoringMode.Significant

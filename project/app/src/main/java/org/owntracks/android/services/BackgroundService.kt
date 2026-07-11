@@ -41,6 +41,8 @@ import javax.inject.Inject
 import javax.inject.Named
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -135,6 +137,49 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   // speed is sustained (see DrivingSpeedTier.DRIVING_OVERRIDE_CONFIRMATION_FIXES).
   private var consecutiveDrivingSpeedFixes = 0
 
+  // Backstop for a driving boost stuck on: Activity Recognition's STILL classifier can lag badly
+  // (or never fire) once parked, if GPS stops reporting speed indoors/underground — the normal
+  // speed-drop exit path at DRIVING_EXIT_KMH never runs without a speed reading. Re-armed
+  // (cancelled + rescheduled) on every confirmation of continued driving; if it ever fires, no
+  // confirmation arrived for DRIVING_BOOST_WATCHDOG_TIMEOUT, so force-revert. Self-cleaning: the
+  // job re-checks preferences.locatorBoostedByDriving at fire time, so a stale timer left over
+  // from a drive that already ended normally is a no-op.
+  private var drivingBoostWatchdogJob: Job? = null
+
+  private fun armDrivingBoostWatchdog() {
+    drivingBoostWatchdogJob?.cancel()
+    drivingBoostWatchdogJob =
+        lifecycleScope.launch {
+          delay(DRIVING_BOOST_WATCHDOG_TIMEOUT)
+          if (preferences.locatorBoostedByDriving) {
+            Timber.w(
+                "No driving confirmation for $DRIVING_BOOST_WATCHDOG_TIMEOUT; " +
+                    "reverting driving boost as a safety backstop")
+            // 20 minutes without any driving evidence: not driving any more, whoever engaged it.
+            revertDrivingBoost(clearAutomotiveActivity = true)
+          }
+        }
+  }
+
+  /**
+   * Force-reverts an active driving boost outside the normal speed-drop exit path (watchdog fire,
+   * feature toggled off). With [clearAutomotiveActivity], also clears a published "automotive"
+   * motionactivities: when the boost was engaged from GPS speed, Activity Recognition never saw
+   * the vehicle and will emit no exit transition to overwrite it — without this the last fix
+   * keeps re-publishing "automotive" long after the drive ended (the same staleness the normal
+   * exit path guards against).
+   */
+  private fun revertDrivingBoost(clearAutomotiveActivity: Boolean) {
+    if (clearAutomotiveActivity &&
+        locationRepo.currentMotionActivities ==
+            DetectedActivityChange.IN_VEHICLE.toMotionActivities()) {
+      locationRepo.currentMotionActivities = DetectedActivityChange.STILL.toMotionActivities()
+    }
+    speedIndicatesDriving = false
+    consecutiveDrivingSpeedFixes = 0
+    activityMonitoringModeController.onDrivingBoostFeatureDisabled()
+  }
+
   private val callbackForReportType =
       mutableMapOf<MessageLocation.ReportType, Lazy<LocationCallbackWithReportType>>().apply {
         MessageLocation.ReportType.entries.forEach {
@@ -177,6 +222,10 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
                 "re-tuning interval ${currentDrivingIntervalSeconds}s -> ${newInterval}s")
         currentDrivingIntervalSeconds = newInterval
         setupLocationRequest()
+      }
+      // Genuine vehicular speed, not just idling/parked with a lingering fix: reset the watchdog.
+      if (speedKmh >= DrivingSpeedTier.DRIVING_EXIT_KMH) {
+        armDrivingBoostWatchdog()
       }
     }
 
@@ -425,6 +474,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
                   } else {
                     change
                   }
+              if (effective == DetectedActivityChange.IN_VEHICLE) {
+                armDrivingBoostWatchdog()
+              }
               activityMonitoringModeController.onActivityChange(effective)
             }
           }
@@ -820,6 +872,14 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         consecutiveDrivingSpeedFixes = 0
       }
     }
+    if (properties.contains(Preferences::boostLocatorWhileDriving.name) &&
+        !preferences.boostLocatorWhileDriving) {
+      // Otherwise a boost engaged via the GPS-speed backup path (see onDrivingLocationForTuning)
+      // would stay stuck on until Activity Recognition happens to report STILL, ignoring the
+      // toggle for the rest of the trip. Only a speed-engaged "automotive" is cleared: we may
+      // well still be driving, and if AR saw the vehicle it also owns the exit transition.
+      revertDrivingBoost(clearAutomotiveActivity = speedIndicatesDriving)
+    }
     if (properties.intersect(PREFERENCES_THAT_WIPE_QUEUE_AND_CONTACTS).isNotEmpty()) {
       lifecycleScope.launch { contactsRepo.clearAll() }
     }
@@ -883,6 +943,10 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     private const val INTENT_ACTION_PACKAGE_REPLACED = "android.intent.action.MY_PACKAGE_REPLACED"
     const val UPDATE_CURRENT_INTENT_FLAGS =
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+
+    // Generously beyond Activity Recognition's typical STILL-detection latency, so this only ever
+    // fires as a genuine backstop (see armDrivingBoostWatchdog).
+    private val DRIVING_BOOST_WATCHDOG_TIMEOUT = 20.minutes
   }
 
   class LocationCallbackWithReportType(

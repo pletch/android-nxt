@@ -17,6 +17,8 @@ import org.owntracks.android.data.waypoints.WaypointModel
 import org.owntracks.android.data.waypoints.WaypointsRepo
 import org.owntracks.android.di.ApplicationScope
 import org.owntracks.android.di.CoroutineScopes
+import org.owntracks.android.kalman.KalmanFix
+import org.owntracks.android.kalman.LocationKalmanFilter
 import org.owntracks.android.location.geofencing.Geofence
 import org.owntracks.android.model.messages.AddMessageStatus
 import org.owntracks.android.model.messages.MessageLocation
@@ -50,7 +52,25 @@ constructor(
     private val publishResponseMessageIdlingResource: SimpleIdlingResource,
   @param:Named("mockLocationIdlingResource")
     private val mockLocationIdlingResource: SimpleIdlingResource
-) {
+) : Preferences.OnPreferenceChangeListener {
+
+  // Cached: maybeSmooth runs on every continuous DEFAULT fix, and each experimentalFeatures read
+  // rebuilds a sorted set from the preference store just to answer one boolean.
+  @Volatile private var smoothingEnabled = isSmoothingEnabled()
+
+  init {
+    preferences.registerOnPreferenceChangedListener(this)
+  }
+
+  private fun isSmoothingEnabled() =
+      preferences.experimentalFeatures.contains(Preferences.EXPERIMENTAL_FEATURE_SMOOTH_LOCATIONS)
+
+  override fun onPreferenceChanged(properties: Set<String>) {
+    if (properties.contains(Preferences::experimentalFeatures.name)) {
+      smoothingEnabled = isSmoothingEnabled()
+    }
+  }
+
   private fun locationIsWithAccuracyThreshold(l: Location): Boolean =
       preferences.ignoreInaccurateLocations
           .run { preferences.ignoreInaccurateLocations == 0 || l.accuracy < this }
@@ -60,6 +80,80 @@ constructor(
                   "Location accuracy ${l.accuracy} is outside accuracy threshold of ${preferences.ignoreInaccurateLocations}")
             }
           }
+
+  // The most recent fix the plausibility gate rejected, kept so a *persistent* new position can
+  // corroborate itself (see below) instead of being locked out by a bad anchor.
+  private var lastRejectedLocation: Location? = null
+
+  /**
+   * Guards against a gross "teleport" jump (e.g. a cell-tower/network location bounce) on the
+   * continuous DEFAULT stream: rejects a location if the speed implied from the last published
+   * fix is physically implausible. Only gates DEFAULT so an explicit USER/CIRCULAR/etc. sample is
+   * always trusted.
+   *
+   * A rejection never advances the anchor, so a bad fix that slipped *through* the gate (e.g. a
+   * bounce accepted after a long publish gap) would otherwise lock every genuine fix out until
+   * enough wall-clock time passed. Escape hatch: a bounce is transient but a real relocation
+   * persists, so a fix that is implausible against the anchor yet plausible against the
+   * *previously rejected* fix corroborates that the new position is real, and is accepted.
+   */
+  private fun locationIsPlausibleGivenLast(
+      location: Location,
+      reportType: MessageLocation.ReportType
+  ): Boolean {
+    if (reportType != MessageLocation.ReportType.DEFAULT) return true
+    val maxSpeedKmh = preferences.maxImplausibleSpeedKmh
+    val last = locationRepo.currentPublishedLocation.value ?: return true
+    val dtSeconds = (location.time - last.time) / 1000.0
+    val distanceMetres = last.distanceTo(location)
+    if (isPlausibleSpeed(distanceMetres, dtSeconds, maxSpeedKmh)) {
+      lastRejectedLocation = null
+      return true
+    }
+    lastRejectedLocation?.let { rejected ->
+      if (isPlausibleSpeed(
+          rejected.distanceTo(location), (location.time - rejected.time) / 1000.0, maxSpeedKmh)) {
+        Timber.w(
+            "Accepting location consistent with the previously rejected fix; " +
+                "the published anchor at $last looks like the outlier")
+        lastRejectedLocation = null
+        return true
+      }
+    }
+    lastRejectedLocation = location
+    Timber.w(
+        "Discarding implausible location jump: ${distanceMetres.roundToInt()}m " +
+            "in ${"%.1f".format(dtSeconds)}s from $last to $location")
+    return false
+  }
+
+  // Experimental (see Preferences.EXPERIMENTAL_FEATURE_SMOOTH_LOCATIONS): smooths GPS jitter on
+  // the continuous DEFAULT stream. Kept as a single instance for the process lifetime so it can
+  // build up a running estimate across fixes.
+  private val kalmanFilter = LocationKalmanFilter()
+
+  private fun maybeSmooth(location: Location, reportType: MessageLocation.ReportType): Location {
+    if (reportType != MessageLocation.ReportType.DEFAULT || !smoothingEnabled) {
+      return location
+    }
+    val smoothed =
+        kalmanFilter.filter(
+            KalmanFix(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                accuracyMetres = location.accuracy,
+                timestampMillis = location.time,
+                speedMetresPerSecond = location.speed))
+    // Only the position is smoothed. The sensor-reported accuracy must survive untouched: the
+    // ignoreInaccurateLocations gate, the waypoint-transition tolerance (geofenceRadius +
+    // accuracy), and the published `acc` all consume it, and the filter's own confidence
+    // (sqrt(variance), floored at 1 m) would let a genuinely poor fix pass those gates looking
+    // precise.
+    return Location(location).apply {
+      latitude = smoothed.latitude
+      longitude = smoothed.longitude
+    }
+  }
 
   suspend fun publishLocationMessage(trigger: MessageLocation.ReportType) =
       locationRepo.currentPublishedLocation.value?.run { publishLocationMessage(trigger, this) }
@@ -172,13 +266,15 @@ constructor(
     Timber.v("OnLocationChanged $location $reportType")
     if (location.time > locationRepo.currentLocationTime ||
         reportType != MessageLocation.ReportType.DEFAULT) {
+      if (!locationIsPlausibleGivenLast(location, reportType)) return
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || location.isMock) {
         Timber.v("Idling location")
         mockLocationIdlingResource.setIdleState(true)
       }
-      publishLocationMessage(reportType, location).run {
+      val locationToPublish = maybeSmooth(location, reportType)
+      publishLocationMessage(reportType, locationToPublish).run {
         if (isSuccess) {
-          locationRepo.setCurrentPublishedLocation(location)
+          locationRepo.setCurrentPublishedLocation(locationToPublish)
         } else {
           Timber.d("Not publishing location: ${exceptionOrNull()?.message}")
         }
@@ -285,4 +381,15 @@ constructor(
       publishResponseMessageIdlingResource.setIdleState(true)
     }
   }
+}
+
+/**
+ * Whether [distanceMetres] covered in [dtSeconds] implies a plausible speed given
+ * [maxSpeedKmh] (0 disables the check). Split out as a top-level pure function so the
+ * teleport-jump logic is unit-testable without instantiating [LocationProcessor].
+ */
+internal fun isPlausibleSpeed(distanceMetres: Float, dtSeconds: Double, maxSpeedKmh: Int): Boolean {
+  if (maxSpeedKmh <= 0 || dtSeconds <= 0) return true
+  val impliedSpeedKmh = DrivingSpeedTier.mpsToKmh((distanceMetres / dtSeconds).toFloat())
+  return impliedSpeedKmh <= maxSpeedKmh
 }

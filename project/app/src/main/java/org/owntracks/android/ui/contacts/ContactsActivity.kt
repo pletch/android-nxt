@@ -7,7 +7,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.databinding.DataBindingUtil
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -65,33 +67,44 @@ class ContactsActivity :
     // update events
     viewModel.contacts.values.forEach(viewModel::refreshGeocode)
 
-    // Observe changes to the contacts repo in our lifecycle and forward it onto the
-    // [ContactsAdapter], optionally
-    // updating the geocode for the contact.
+    // Observe changes to the contacts repo while STARTED and forward them onto the
+    // [ContactsAdapter], optionally updating the geocode for the contact. Below STARTED there is
+    // no subscriber and the repo flow has no replay, so events emitted while backgrounded are
+    // dropped — reconcile against the authoritative repo state on every re-entry, then apply
+    // incremental events. (A bare collect instead would keep this backgrounded activity
+    // reverse-geocoding every contact update for as long as it exists.)
     lifecycleScope.launch {
-      viewModel.contactUpdatedEvent.collect {
-        Timber.v("Received contactUpdatedEvent $it")
-        when (it) {
-          is ContactsRepoChange.ContactAdded -> {
-            contactsAdapter.addContact(it.contact)
-            viewModel.refreshGeocode(it.contact)
+      repeatOnLifecycle(Lifecycle.State.STARTED) {
+        contactsAdapter.setContactList(viewModel.contacts.values)
+        updateListVisibility(binding)
+        viewModel.contactUpdatedEvent.collect {
+          Timber.v("Received contactUpdatedEvent $it")
+          when (it) {
+            is ContactsRepoChange.ContactAdded -> {
+              contactsAdapter.addContact(it.contact)
+              viewModel.refreshGeocode(it.contact)
+            }
+            is ContactsRepoChange.ContactRemoved -> contactsAdapter.removeContact(it.contact)
+            is ContactsRepoChange.ContactLocationUpdated -> {
+              contactsAdapter.updateContact(it.contact)
+              viewModel.refreshGeocode(it.contact)
+            }
+            is ContactsRepoChange.ContactCardUpdated -> contactsAdapter.updateContact(it.contact)
+            is ContactsRepoChange.AllCleared -> contactsAdapter.clearAll()
           }
-          is ContactsRepoChange.ContactRemoved -> contactsAdapter.removeContact(it.contact)
-          is ContactsRepoChange.ContactLocationUpdated -> {
-            contactsAdapter.updateContact(it.contact)
-            viewModel.refreshGeocode(it.contact)
-          }
-          is ContactsRepoChange.ContactCardUpdated -> contactsAdapter.updateContact(it.contact)
-          is ContactsRepoChange.AllCleared -> contactsAdapter.clearAll()
-        }
-        binding.run {
-          placeholder.visibility = if (viewModel.contacts.isEmpty()) View.VISIBLE else View.GONE
-          contactsRecyclerView.visibility =
-              if (viewModel.contacts.isEmpty()) View.GONE else View.VISIBLE
-        }
+          updateListVisibility(binding)
 
-        contactsCountingIdlingResource.run { if (!isIdleNow) decrement() }
+          contactsCountingIdlingResource.run { if (!isIdleNow) decrement() }
+        }
       }
+    }
+  }
+
+  private fun updateListVisibility(binding: UiContactsBinding) {
+    binding.run {
+      placeholder.visibility = if (viewModel.contacts.isEmpty()) View.VISIBLE else View.GONE
+      contactsRecyclerView.visibility =
+          if (viewModel.contacts.isEmpty()) View.GONE else View.VISIBLE
     }
   }
 

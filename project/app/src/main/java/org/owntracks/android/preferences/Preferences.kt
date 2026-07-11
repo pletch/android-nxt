@@ -285,6 +285,12 @@ constructor(
 
   @Preference var ignoreStaleLocations: Float by preferencesStore
 
+  // Reject a DEFAULT-report location if the speed implied from the last published location
+  // exceeds this (a gross jump from e.g. a cell-tower/network bounce). 0 disables the check.
+  // Key matches upstream PR #2266's maxImplausibleSpeedKmh so configs stay compatible when it
+  // lands (upstream defaults it to 0/off; we default to a generous always-on ceiling).
+  @Preference var maxImplausibleSpeedKmh: Int by preferencesStore
+
   @Preference(exportModeHttp = false) var info: Boolean by preferencesStore
 
   @Preference(exportModeHttp = false) var keepalive: Int by preferencesStore
@@ -505,17 +511,19 @@ constructor(
   }
 
   companion object {
-    const val EXPERIMENTAL_FEATURE_SHOW_EXPERIMENTAL_PREFERENCE_UI = "showExperimentalPreferenceUI"
     const val EXPERIMENTAL_FEATURE_LOCATION_PING_USES_HIGH_ACCURACY_LOCATION_REQUEST =
         "locationPingUsesHighAccuracyLocationRequest"
     const val EXPERIMENTAL_FEATURE_REQUEST_LOCATION_ON_SIGNIFICANT_MOTION =
         "requestLocationOnSignificantMotion"
+    // Smooths the continuous location stream with a Kalman filter to reduce GPS jitter. Does not
+    // affect the separate always-on speed-implausibility gate that drops gross outlier jumps.
+    const val EXPERIMENTAL_FEATURE_SMOOTH_LOCATIONS = "smoothLocationsWithKalmanFilter"
 
     internal val EXPERIMENTAL_FEATURES =
         setOf(
-            EXPERIMENTAL_FEATURE_SHOW_EXPERIMENTAL_PREFERENCE_UI,
             EXPERIMENTAL_FEATURE_LOCATION_PING_USES_HIGH_ACCURACY_LOCATION_REQUEST,
-            EXPERIMENTAL_FEATURE_REQUEST_LOCATION_ON_SIGNIFICANT_MOTION)
+            EXPERIMENTAL_FEATURE_REQUEST_LOCATION_ON_SIGNIFICANT_MOTION,
+            EXPERIMENTAL_FEATURE_SMOOTH_LOCATIONS)
 
     val SYSTEM_NIGHT_AUTO_MODE by lazy {
       if (SDK_INT > Build.VERSION_CODES.Q) {
