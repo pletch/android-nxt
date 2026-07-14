@@ -591,8 +591,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       } else {
         Timber.d(
             "Activity-based adaptive monitoring enabled; requesting activity transition updates")
-        activityRecognitionClient.requestActivityUpdates()
+        // Set optimistically so repeated setup calls don't stack duplicate in-flight requests;
+        // reset on async failure so the next service start retries instead of believing a dead
+        // registration is alive forever.
         activityUpdatesRegistered = true
+        activityRecognitionClient.requestActivityUpdates { activityUpdatesRegistered = false }
       }
     } else if (activityUpdatesRegistered) {
       activityRecognitionClient.removeActivityUpdates()

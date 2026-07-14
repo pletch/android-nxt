@@ -6,7 +6,11 @@ package org.owntracks.android.location
  * no-op.
  */
 interface ActivityRecognitionClient {
-  fun requestActivityUpdates()
+  /**
+   * Registration is asynchronous and can fail (e.g. Play Services not ready yet at boot);
+   * [onFailure] lets the caller reset its registered-state tracking so a later attempt retries.
+   */
+  fun requestActivityUpdates(onFailure: () -> Unit = {})
 
   fun removeActivityUpdates()
 }

@@ -20,7 +20,7 @@ class GMSActivityRecognitionClient(private val context: Context) : ActivityRecog
   private val client = ActivityRecognition.getClient(context)
 
   @RequiresPermission("android.permission.ACTIVITY_RECOGNITION")
-  override fun requestActivityUpdates() {
+  override fun requestActivityUpdates(onFailure: () -> Unit) {
     client
         .requestActivityTransitionUpdates(
             ActivityTransitionRequest(TRANSITIONS), getTransitionPendingIntent())
@@ -31,7 +31,10 @@ class GMSActivityRecognitionClient(private val context: Context) : ActivityRecog
           // the current activity once to seed it.
           requestCurrentActivitySample()
         }
-        .addOnFailureListener { Timber.w(it, "Failed to register for activity transition updates") }
+        .addOnFailureListener {
+          Timber.w(it, "Failed to register for activity transition updates")
+          onFailure()
+        }
   }
 
   @RequiresPermission("android.permission.ACTIVITY_RECOGNITION")
