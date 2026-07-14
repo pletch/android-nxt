@@ -603,6 +603,34 @@ it's a defensive limit most users should never touch).
   `app:createGmsDebugUnitTestCoverageReport`. Add the module test task.
 - `android.code-workspace` untracked — ignore or commit deliberately.
 
+## Field fix (2026-07-14): activity-transition registration retry — `30fa85db`
+
+Found while debugging "walking never detected" on the primary test phone.
+`setupActivityRecognition()` set `activityUpdatesRegistered = true` immediately
+after calling `requestActivityUpdates()`, but the GMS registration is
+asynchronous and can fail (classic case: service auto-started at boot before
+Play Services is ready). One failure left the flag stuck true, so every later
+service start logged "already registered; skipping" and activity detection
+stayed silently dead until the process died. Symptom is deceptive: **driving
+keeps working** (the GPS-speed backup boosts on raw fix speed, no AR needed)
+while walking — which has no backup path — goes dark.
+
+Fix: `ActivityRecognitionClient.requestActivityUpdates()` now takes an
+`onFailure` callback; the service still sets the flag optimistically (repeated
+setup calls can't stack duplicate in-flight requests) but resets it on async
+failure so the next service start retries. Upstream-relevant only in spirit —
+upstream registers unconditionally without tracking, so it re-requests every
+service start instead (different trade-off, not broken the same way).
+
+Field notes from the same session (phone-side, no code change): the test
+phone enters deep Doze 1–3 min after screen-off (established since at least
+June), which defers both AR transitions and location fixes; walking detection
+normally survives because motion bounces the phone out of Doze and queued
+events deliver in the gaps. A wedged GMS motion-detection state (phone stayed
+in Doze through an entire walk) mimicked this bug exactly and was cured by a
+reboot. Diagnosis order for "walks not detected": registration log line →
+`DEVICE_IDLE_MODE_CHANGED idle=true` during the walk → reboot.
+
 ## Cross-cutting upstream notes
 
 - Keep a short note per PR on whether it's behind a preference (lower friction to
