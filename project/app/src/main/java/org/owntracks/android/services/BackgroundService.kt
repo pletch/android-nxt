@@ -401,6 +401,16 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
                 else preferences.url.toHttpUrlOrNull()?.host ?: "")
           }
         }
+        launch {
+          // The jump gate has withheld a suspicious fix: request a fresh one now so a genuine
+          // relocation is corroborated (or a bounce refuted) in seconds, instead of waiting for
+          // the next scheduled fix — which for a stationary device may be a long way off. DEFAULT
+          // report type, so the fresh fix goes through the gate itself rather than bypassing it.
+          locationProcessor.corroborationFixRequests.collect {
+            Timber.i("Requesting an on-demand fix to corroborate a withheld location jump")
+            requestOnDemandLocationUpdate(MessageLocation.ReportType.DEFAULT)
+          }
+        }
         endpointStateRepo.setServiceStartedNow()
       }
     }

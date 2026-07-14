@@ -2,6 +2,7 @@ package org.owntracks.android.services
 
 import android.location.Location
 import android.os.Build
+import android.os.SystemClock
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -10,6 +11,8 @@ import javax.inject.Singleton
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.owntracks.android.data.repos.LocationRepo
@@ -81,50 +84,78 @@ constructor(
             }
           }
 
-  // The most recent fix the plausibility gate rejected, kept so a *persistent* new position can
-  // corroborate itself (see below) instead of being locked out by a bad anchor.
-  private var lastRejectedLocation: Location? = null
+  // The most recent DEFAULT fix the jump gate withheld from publishing — either rejected as an
+  // implausible jump, or quarantined as a suspicious post-gap jump. A subsequent fix that agrees
+  // with it corroborates that the new position is real (see below).
+  private var lastWithheldLocation: Location? = null
+
+  // Fires when the gate starts withholding, so the service can request a fresh fix to corroborate
+  // (or refute) it in seconds instead of waiting for the next scheduled fix — for a stationary
+  // device in significant mode that could otherwise be arbitrarily far off. Emitted only on the
+  // first withhold of an episode and rate-limited, so a flapping location environment can't turn
+  // the gate into a high-accuracy-request loop.
+  private val mutableCorroborationFixRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+  val corroborationFixRequests: SharedFlow<Unit> = mutableCorroborationFixRequests
+  private var lastCorroborationRequestElapsedMs = 0L
 
   /**
-   * Guards against a gross "teleport" jump (e.g. a cell-tower/network location bounce) on the
-   * continuous DEFAULT stream: rejects a location if the speed implied from the last published
-   * fix is physically implausible. Only gates DEFAULT so an explicit USER/CIRCULAR/etc. sample is
-   * always trusted.
+   * Gates the continuous DEFAULT stream against network-location "teleport" artifacts (a
+   * mislocated cell ID, or a wifi AP whose database entry went stale when it moved). Explicit
+   * USER/CIRCULAR/etc. samples are always trusted; 0 disables the gate entirely.
    *
-   * A rejection never advances the anchor, so a bad fix that slipped *through* the gate (e.g. a
-   * bounce accepted after a long publish gap) would otherwise lock every genuine fix out until
-   * enough wall-clock time passed. Escape hatch: a bounce is transient but a real relocation
-   * persists, so a fix that is implausible against the anchor yet plausible against the
-   * *previously rejected* fix corroborates that the new position is real, and is accepted.
+   * Two failure modes, one shared principle — a bounce is transient but a real move persists, so
+   * two consecutive fixes that agree with each other are believed over the published anchor:
+   * - **Implausible jump**: the speed implied from the last published fix exceeds
+   *   [Preferences.maxImplausibleSpeedKmh]. Withheld — unless the previous withheld fix
+   *   corroborates it, which means the *anchor* is the outlier (a bounce that reached the wire)
+   *   and waiting out the implied-speed window would lock genuine fixes out.
+   * - **Suspicious post-gap jump**: a long publish gap makes any implied speed look plausible (dt
+   *   is the denominator), so the speed check is structurally blind right after a gap — exactly
+   *   when a stationary device's displacement-triggered publish is most likely to *be* a bounce.
+   *   A plausible fix that still jumped more than [QUARANTINE_DISTANCE_METRES] is therefore
+   *   withheld until the next fix corroborates it: a genuine relocation costs one fix of latency,
+   *   a bounce never reaches the wire.
    */
-  private fun locationIsPlausibleGivenLast(
+  private fun shouldPublishLocation(
       location: Location,
       reportType: MessageLocation.ReportType
   ): Boolean {
     if (reportType != MessageLocation.ReportType.DEFAULT) return true
-    val maxSpeedKmh = preferences.maxImplausibleSpeedKmh
     val last = locationRepo.currentPublishedLocation.value ?: return true
-    val dtSeconds = (location.time - last.time) / 1000.0
-    val distanceMetres = last.distanceTo(location)
-    if (isPlausibleSpeed(distanceMetres, dtSeconds, maxSpeedKmh)) {
-      lastRejectedLocation = null
-      return true
-    }
-    lastRejectedLocation?.let { rejected ->
-      if (isPlausibleSpeed(
-          rejected.distanceTo(location), (location.time - rejected.time) / 1000.0, maxSpeedKmh)) {
+    val withheld = lastWithheldLocation
+    val decision =
+        evaluateJumpGate(
+            distanceToAnchorMetres = last.distanceTo(location),
+            dtToAnchorSeconds = (location.time - last.time) / 1000.0,
+            distanceToWithheldMetres = withheld?.distanceTo(location),
+            dtToWithheldSeconds = withheld?.let { (location.time - it.time) / 1000.0 },
+            maxSpeedKmh = preferences.maxImplausibleSpeedKmh)
+    return when (decision) {
+      JumpGateDecision.PUBLISH -> {
+        lastWithheldLocation = null
+        true
+      }
+      JumpGateDecision.PUBLISH_CORROBORATED -> {
+        Timber.i("Jump corroborated by the previously withheld fix; accepting $location")
+        lastWithheldLocation = null
+        true
+      }
+      JumpGateDecision.WITHHOLD -> {
+        val firstWithholdOfEpisode = withheld == null
+        lastWithheldLocation = location
         Timber.w(
-            "Accepting location consistent with the previously rejected fix; " +
-                "the published anchor at $last looks like the outlier")
-        lastRejectedLocation = null
-        return true
+            "Withholding suspicious location jump: ${last.distanceTo(location).roundToInt()}m " +
+                "in ${"%.1f".format((location.time - last.time) / 1000.0)}s from $last to " +
+                "$location (awaiting corroboration)")
+        val nowMs = SystemClock.elapsedRealtime()
+        if (firstWithholdOfEpisode &&
+            nowMs - lastCorroborationRequestElapsedMs >= CORROBORATION_REQUEST_COOLDOWN_MS) {
+          lastCorroborationRequestElapsedMs = nowMs
+          mutableCorroborationFixRequests.tryEmit(Unit)
+        }
+        false
       }
     }
-    lastRejectedLocation = location
-    Timber.w(
-        "Discarding implausible location jump: ${distanceMetres.roundToInt()}m " +
-            "in ${"%.1f".format(dtSeconds)}s from $last to $location")
-    return false
   }
 
   // Experimental (see Preferences.EXPERIMENTAL_FEATURE_SMOOTH_LOCATIONS): smooths GPS jitter on
@@ -266,7 +297,7 @@ constructor(
     Timber.v("OnLocationChanged $location $reportType")
     if (location.time > locationRepo.currentLocationTime ||
         reportType != MessageLocation.ReportType.DEFAULT) {
-      if (!locationIsPlausibleGivenLast(location, reportType)) return
+      if (!shouldPublishLocation(location, reportType)) return
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || location.isMock) {
         Timber.v("Idling location")
         mockLocationIdlingResource.setIdleState(true)
@@ -392,4 +423,48 @@ internal fun isPlausibleSpeed(distanceMetres: Float, dtSeconds: Double, maxSpeed
   if (maxSpeedKmh <= 0 || dtSeconds <= 0) return true
   val impliedSpeedKmh = DrivingSpeedTier.mpsToKmh((distanceMetres / dtSeconds).toFloat())
   return impliedSpeedKmh <= maxSpeedKmh
+}
+
+// A plausible-speed jump larger than this is still withheld pending corroboration: after a long
+// publish gap the speed check is blind (huge dt), and the "miles away" network-bounce artifacts
+// this guards against are km-scale. Small enough to catch them, large enough that ordinary
+// between-fix movement never pays the one-fix corroboration latency.
+internal const val QUARANTINE_DISTANCE_METRES = 5_000f
+
+// Floor between on-demand corroboration fix requests. Generous enough for GPS acquisition plus
+// slack; a genuine relocation resolves on the first request, so a repeat inside this window only
+// happens in a flapping/GPS-denied environment where more requests wouldn't help anyway.
+private const val CORROBORATION_REQUEST_COOLDOWN_MS = 60_000L
+
+internal enum class JumpGateDecision {
+  PUBLISH,
+  PUBLISH_CORROBORATED,
+  WITHHOLD
+}
+
+/**
+ * Pure decision core of [LocationProcessor]'s jump gate (see [shouldPublishLocation] for the
+ * rationale). [distanceToWithheldMetres]/[dtToWithheldSeconds] describe the previously withheld
+ * fix, if any. [maxSpeedKmh] <= 0 disables the gate.
+ */
+internal fun evaluateJumpGate(
+    distanceToAnchorMetres: Float,
+    dtToAnchorSeconds: Double,
+    distanceToWithheldMetres: Float?,
+    dtToWithheldSeconds: Double?,
+    maxSpeedKmh: Int
+): JumpGateDecision {
+  if (maxSpeedKmh <= 0) return JumpGateDecision.PUBLISH
+  if (isPlausibleSpeed(distanceToAnchorMetres, dtToAnchorSeconds, maxSpeedKmh) &&
+      distanceToAnchorMetres < QUARANTINE_DISTANCE_METRES) {
+    return JumpGateDecision.PUBLISH
+  }
+  // Implausible jump, or plausible only thanks to a long gap: believe it once two consecutive
+  // fixes agree with each other.
+  if (distanceToWithheldMetres != null &&
+      dtToWithheldSeconds != null &&
+      isPlausibleSpeed(distanceToWithheldMetres, dtToWithheldSeconds, maxSpeedKmh)) {
+    return JumpGateDecision.PUBLISH_CORROBORATED
+  }
+  return JumpGateDecision.WITHHOLD
 }
