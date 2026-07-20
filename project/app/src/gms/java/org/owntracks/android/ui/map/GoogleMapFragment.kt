@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.graphics.Insets
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -89,6 +90,7 @@ internal constructor(
   }
 
   private var googleMap: GoogleMap? = null
+  private var mapViewportPadding: Insets = Insets.NONE
   private val markersOnMap: MutableMap<String, Marker> = HashMap()
   private val regionsOnMap: MutableMap<Long, WaypointOnMap> = mutableMapOf()
 
@@ -184,7 +186,22 @@ internal constructor(
 
       setMapLayerType(viewModel.mapLayerStyle.value)
       drawAllContactsAndRegions()
+      applyMapViewportPadding()
     }
+  }
+
+  override fun setMapViewportPadding(insets: Insets) {
+    mapViewportPadding = insets
+    applyMapViewportPadding()
+  }
+
+  private fun applyMapViewportPadding() {
+    googleMap?.setPadding(
+        mapViewportPadding.left,
+        mapViewportPadding.top,
+        mapViewportPadding.right,
+        mapViewportPadding.bottom,
+    )
   }
 
   override fun updateCamera(latLng: LatLng) {
