@@ -247,6 +247,10 @@ constructor(
       }
     }
 
+    // NB: the implausible-speed check upstream added here (#2034) is deliberately absent — this
+    // fork runs the superset jump gate in onLocationChanged/shouldPublishLocation instead, so
+    // checking again against the same anchor would be redundant.
+
     val loadedWaypoints = withContext(ioDispatcher) { waypointsRepo.getAll() }
     Timber.d("publishLocationMessage for $location triggered by $trigger")
 

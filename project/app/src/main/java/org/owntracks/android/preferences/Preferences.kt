@@ -285,12 +285,6 @@ constructor(
 
   @Preference var ignoreStaleLocations: Float by preferencesStore
 
-  // Reject a DEFAULT-report location if the speed implied from the last published location
-  // exceeds this (a gross jump from e.g. a cell-tower/network bounce). 0 disables the check.
-  // Key matches upstream PR #2266's maxImplausibleSpeedKmh so configs stay compatible when it
-  // lands (upstream defaults it to 0/off; we default to a generous always-on ceiling).
-  @Preference var maxImplausibleSpeedKmh: Int by preferencesStore
-
   @Preference(exportModeHttp = false) var info: Boolean by preferencesStore
 
   @Preference(exportModeHttp = false) var keepalive: Int by preferencesStore
@@ -304,6 +298,15 @@ constructor(
   @Preference var useGNSSInSignificantMonitoringMode: Boolean by preferencesStore
 
   @Preference var mapLayerStyle: MapLayerStyle by preferencesStore
+
+  // Maximum plausible ground speed in km/h between consecutive published fixes. 0 disables the
+  // implausible-speed (teleport) filter. Reject a DEFAULT-report location if the speed implied
+  // from the last published location exceeds this (a gross jump from e.g. a cell-tower/network
+  // bounce). This fork applies it through the jump gate in LocationProcessor, which additionally
+  // quarantines suspicious post-gap jumps and accepts a withheld fix once a second fix
+  // corroborates it; upstream defaults the key to 0/off, we default to a generous always-on
+  // ceiling.
+  @Preference var maxImplausibleSpeedKmh: Int by preferencesStore
 
   @Preference var mode: ConnectionMode by preferencesStore
 

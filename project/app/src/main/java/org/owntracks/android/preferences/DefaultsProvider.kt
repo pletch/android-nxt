@@ -54,10 +54,11 @@ interface DefaultsProvider {
       Preferences::locatorDisplacement -> 500
       Preferences::locatorInterval -> 60
       Preferences::locatorPriority -> null
-      // Generous enough to cover commercial-flight tracking; only rejects genuine "teleport"
-      // jumps (e.g. a cell-tower/network location bounce).
-      Preferences::maxImplausibleSpeedKmh -> 1000
       Preferences::useGNSSInSignificantMonitoringMode -> false
+      // Generous enough to cover commercial-flight tracking; only rejects genuine "teleport"
+      // jumps (e.g. a cell-tower/network location bounce). Upstream ships 0 (off) for backward
+      // compatibility; this fork wants the jump gate on by default.
+      Preferences::maxImplausibleSpeedKmh -> 1000
       Preferences::mode -> ConnectionMode.MQTT
       Preferences::monitoring -> MonitoringMode.Significant
       Preferences::moveModeLocatorInterval -> 10
