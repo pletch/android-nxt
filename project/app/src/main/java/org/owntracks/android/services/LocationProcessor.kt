@@ -236,20 +236,23 @@ constructor(
     // If this location has come from the network *and* the most recent location was both recent and
     // high-accuracy, then it's probably not usefully accurate. Drop it.
     locationRepo.currentPublishedLocation.value?.let { lastLocation ->
-      if (highAccuracyProviders.contains(location.provider) &&
-          lastLocation.provider == "network" &&
+      if (location.provider == "network" &&
+          highAccuracyProviders.contains(lastLocation.provider) &&
           location.time - lastLocation.time <
               preferences.discardNetworkLocationThresholdSeconds * 1000) {
         Timber.d(
-            "Ignoring location from ${location.provider}, last was from gps, and time difference is less than 1s")
+            "Ignoring location from ${location.provider}, last was from ${lastLocation.provider} within ${preferences.discardNetworkLocationThresholdSeconds}s")
         return Result.failure(
-            Exception("Ignoring location from ${location.provider}, last was recent and from gps"))
+            Exception(
+                "Ignoring location from ${location.provider}, last was recent and high-accuracy"))
       }
     }
 
-    // NB: the implausible-speed check upstream added here (#2034) is deliberately absent — this
-    // fork runs the superset jump gate in onLocationChanged/shouldPublishLocation instead, so
-    // checking again against the same anchor would be redundant.
+    // NB: the implausible-speed check upstream added here (#2034, later refined by #2289's sibling
+    // to exempt `responseMessageTypes`) is deliberately absent — this fork runs the superset jump
+    // gate in onLocationChanged/shouldPublishLocation instead, so checking again against the same
+    // anchor would be redundant. The RESPONSE exemption upstream added is already implied here: the
+    // gate only ever runs on DEFAULT, so every response-type trigger passes untouched.
 
     val loadedWaypoints = withContext(ioDispatcher) { waypointsRepo.getAll() }
     Timber.d("publishLocationMessage for $location triggered by $trigger")
