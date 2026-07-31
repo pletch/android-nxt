@@ -682,7 +682,11 @@ class MapActivity :
         CheckPermissionsResult.NO_PERMISSIONS_NOT_LAUNCHED_REQUEST
       }
     } else {
-      preferences.userDeclinedEnableBackgroundLocationPermissions = true
+      // Holding the permission means the user did *not* decline it. Setting the flag true here
+      // (as this did) recorded the opposite of what happened, and stuck: if the permission were
+      // later revoked in system settings, the request branch above would be permanently closed and
+      // we'd never re-prompt. Mirror backgroundLocationPermissionGranted() instead.
+      preferences.userDeclinedEnableBackgroundLocationPermissions = false
       CheckPermissionsResult.HAS_PERMISSIONS
     }
   }
