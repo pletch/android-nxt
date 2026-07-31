@@ -15,6 +15,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.KeyStore
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -81,6 +82,10 @@ class MQTTMessageProcessorEndpoint(
   private val clientGeneration = AtomicLong(0)
   @Volatile private var currentClientGeneration = 0L
 
+  // Whether the "queued work but not connected" reconnect nudge has already been sent for the
+  // current disconnected period. See the latch's use in [sendMessage].
+  private val reconnectNudgeSent = AtomicBoolean(false)
+
   internal val networkChangeCallback =
       NetworkTrackingCallback(
           { endpointStateRepo.endpointState.value },
@@ -130,6 +135,9 @@ class MQTTMessageProcessorEndpoint(
         return@launch
       }
       endpointStateRepo.setState(EndpointState.CONNECTED)
+      // Re-arm the outbound nudge: the next time the queue finds itself disconnected, that is a new
+      // signal rather than an echo of the outage we just recovered from.
+      reconnectNudgeSent.set(false)
       val c = client ?: return@launch
       val config = connectionConfiguration ?: return@launch
       try {
@@ -283,7 +291,16 @@ class MQTTMessageProcessorEndpoint(
       // off forever with nothing trying to restore the connection. Expedited: a retry job parked
       // on a grown WorkManager backoff (broker was down for a while) must not make queued work
       // wait out the remaining hours.
-      scheduler.scheduleMqttReconnect(expedite = true)
+      //
+      // Latched, because this runs once per send *attempt* and MessageProcessor retries the head of
+      // the queue on its own backoff — so an unguarded nudge repeats every few seconds for as long
+      // as the queue is stuck. Each one enqueues with REPLACE, cancelling the pending reconnect
+      // (and potentially one that is mid-connect) and starting over, which turns "the queue wants a
+      // connection" into "the queue prevents one". One nudge per disconnected period is the actual
+      // signal; [connectedListenerFor] re-arms it.
+      if (reconnectNudgeSent.compareAndSet(false, true)) {
+        scheduler.scheduleMqttReconnect(expedite = true)
+      }
       return Result.failure(NotConnectedException())
     }
     message.annotateFromPreferences(preferences)

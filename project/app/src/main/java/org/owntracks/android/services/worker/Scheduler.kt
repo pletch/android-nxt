@@ -58,43 +58,42 @@ constructor(
 
   /**
    * [expedite] replaces any already-scheduled reconnect job (which may be minutes-to-hours out on
-   * WorkManager's grown retry backoff) with a fresh near-immediate one. Use it for genuine new
-   * signals that the connection is wanted *now* — queued outbound work, a wedged publish — and
-   * never from a failure path, where replacing the retrying job would reset its backoff to the
-   * first attempt on every failure.
+   * WorkManager's grown retry backoff) with a fresh immediate one. Use it for genuine new signals
+   * that the connection is wanted *now* — queued outbound work, a wedged publish — and never from a
+   * failure path, where replacing the retrying job would reset its backoff to the first attempt on
+   * every failure.
+   *
+   * An expedited request deliberately carries no initial delay. It is enqueued with REPLACE, so a
+   * delayed one would have its countdown re-armed from zero by the next expedite — and a caller
+   * that expedites faster than [RECONNECT_DELAY_SECONDS] (an outbound retry loop backing off
+   * against a disconnected endpoint) could then push the reconnect out indefinitely, leaving the
+   * connection down for as long as the queue kept asking for it. Expediting is a request to connect
+   * now; the settling pause belongs only to the passive path that reacts to a drop.
    */
-  fun scheduleMqttReconnect(expedite: Boolean = false) =
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            OneTimeWorkRequest.Builder(MQTTReconnectWorker::class.java)
-                // Pause in case there's network turmoil
-                .setInitialDelay(Duration.ofSeconds(RECONNECT_DELAY_SECONDS))
-                .addTag(ONETIME_TASK_MQTT_RECONNECT)
-                .setBackoffCriteria(
-                    BackoffPolicy.EXPONENTIAL, MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
-                .setConstraints(anyNetworkConstraint)
-                .build()
-          } else {
-            OneTimeWorkRequest.Builder(MQTTReconnectWorker::class.java)
-                .addTag(ONETIME_TASK_MQTT_RECONNECT)
-                .setBackoffCriteria(
-                    BackoffPolicy.EXPONENTIAL, MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
-                .setConstraints(anyNetworkConstraint)
-                .build()
-          }
-          .run {
-            // KEEP by default: this is called both to arrange a fresh retry and, redundantly,
-            // from inside a failed attempt of the retry job itself (MQTTReconnectWorker's own
-            // connect() failure). REPLACE there would swap out the in-flight/pending job for a
-            // brand new one on every failure, resetting WorkManager's exponential backoff back to
-            // its first attempt each time instead of letting it grow. KEEP leaves an
-            // already-scheduled job alone and only enqueues when none exists; expedite (see KDoc)
-            // is the escape hatch for nudges that must not wait out a grown backoff.
-            workManager.enqueueUniqueWork(
-                ONETIME_TASK_MQTT_RECONNECT,
-                if (expedite) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
-                this)
-            Timber.d("Scheduled ONETIME_TASK_MQTT_RECONNECT job (expedite=$expedite)")
-          }
+  fun scheduleMqttReconnect(expedite: Boolean = false) {
+    val builder =
+        OneTimeWorkRequest.Builder(MQTTReconnectWorker::class.java)
+            .addTag(ONETIME_TASK_MQTT_RECONNECT)
+            .setBackoffCriteria(
+                BackoffPolicy.EXPONENTIAL, MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
+            .setConstraints(anyNetworkConstraint)
+    if (!expedite && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      // Pause in case there's network turmoil
+      builder.setInitialDelay(Duration.ofSeconds(RECONNECT_DELAY_SECONDS))
+    }
+    // KEEP by default: this is called both to arrange a fresh retry and, redundantly, from inside a
+    // failed attempt of the retry job itself (MQTTReconnectWorker's own connect() failure). REPLACE
+    // there would swap out the in-flight/pending job for a brand new one on every failure,
+    // resetting WorkManager's exponential backoff back to its first attempt each time instead of
+    // letting it grow. KEEP leaves an already-scheduled job alone and only enqueues when none
+    // exists; expedite (see KDoc) is the escape hatch for nudges that must not wait out a grown
+    // backoff.
+    workManager.enqueueUniqueWork(
+        ONETIME_TASK_MQTT_RECONNECT,
+        if (expedite) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+        builder.build())
+    Timber.d("Scheduled ONETIME_TASK_MQTT_RECONNECT job (expedite=$expedite)")
+  }
 
   companion object {
     private const val PERIODIC_TASK_SEND_LOCATION_PING = "PERIODIC_TASK_SEND_LOCATION_PING"
