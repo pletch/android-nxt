@@ -17,6 +17,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.StyleSpan
@@ -137,26 +138,70 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   // speed is sustained (see DrivingSpeedTier.DRIVING_OVERRIDE_CONFIRMATION_FIXES).
   private var consecutiveDrivingSpeedFixes = 0
 
+  // Arrival time (elapsedRealtime, so it counts across deep sleep) of the most recent fix on the
+  // continuous DEFAULT stream, regardless of whether it carried a speed. Distinguishes "the
+  // locator is running and reporting non-vehicular speeds" from "the locator is delivering
+  // nothing at all"; see armDrivingBoostWatchdog.
+  private var lastDefaultStreamFixElapsedRealtime = 0L
+
+  // Consecutive times the watchdog fired but deferred because the location stream was starved.
+  // Bounds the deferral so a permanently dead stream still reverts eventually.
+  private var starvedWatchdogDeferrals = 0
+
   // Backstop for a driving boost stuck on: Activity Recognition's STILL classifier can lag badly
   // (or never fire) once parked, if GPS stops reporting speed indoors/underground — the normal
   // speed-drop exit path at DRIVING_EXIT_KMH never runs without a speed reading. Re-armed
-  // (cancelled + rescheduled) on every confirmation of continued driving; if it ever fires, no
-  // confirmation arrived for DRIVING_BOOST_WATCHDOG_TIMEOUT, so force-revert. Self-cleaning: the
-  // job re-checks preferences.locatorBoostedByDriving at fire time, so a stale timer left over
-  // from a drive that already ended normally is a no-op.
+  // (cancelled + rescheduled) on every confirmation of continued driving; see
+  // armDrivingBoostWatchdog for what happens when it fires. Self-cleaning: the job re-checks
+  // preferences.locatorBoostedByDriving at fire time, so a stale timer left over from a drive that
+  // already ended normally is a no-op.
   private var drivingBoostWatchdogJob: Job? = null
 
+  /**
+   * (Re-)arms the watchdog on fresh evidence of driving.
+   *
+   * The watchdog reverts on *absence of driving evidence*, which is only meaningful while the
+   * locator is actually delivering fixes. Under Doze (or any other suppression of the DEFAULT
+   * stream) no fixes arrive at all, so "no vehicular speed seen" says nothing about whether the
+   * drive ended — and reverting there tears the boost down mid-trip, exactly when it's needed.
+   * Worse, it's self-sustaining: the boost's two re-engagement paths are Activity Recognition
+   * (also suppressed in Doze) and GPS speed via [onDrivingLocationForTuning] (fed only by the
+   * stream that just went silent), so nothing restores the boost until the device wakes.
+   *
+   * So on firing, only treat the silence as evidence if the stream was alive during the window.
+   * If it was starved, wait out another window — up to [DRIVING_BOOST_MAX_STARVED_DEFERRALS], after
+   * which we revert anyway rather than leave the boost pinned on indefinitely.
+   */
   private fun armDrivingBoostWatchdog() {
     drivingBoostWatchdogJob?.cancel()
+    starvedWatchdogDeferrals = 0
     drivingBoostWatchdogJob =
         lifecycleScope.launch {
-          delay(DRIVING_BOOST_WATCHDOG_TIMEOUT)
-          if (preferences.locatorBoostedByDriving) {
+          while (true) {
+            val armedAt = SystemClock.elapsedRealtime()
+            delay(DRIVING_BOOST_WATCHDOG_TIMEOUT)
+            if (!preferences.locatorBoostedByDriving) return@launch
+
+            // A fix arriving after we armed means the locator was in a position to report
+            // vehicular speed and didn't, so the silence is real evidence the drive ended.
+            val streamWasAlive = lastDefaultStreamFixElapsedRealtime > armedAt
+            val outOfDeferrals = starvedWatchdogDeferrals >= DRIVING_BOOST_MAX_STARVED_DEFERRALS
+            if (streamWasAlive || outOfDeferrals) {
+              val reason =
+                  if (streamWasAlive) "location stream was live"
+                  else "location stream starved throughout, deferral limit reached"
+              Timber.w(
+                  "No driving confirmation for $DRIVING_BOOST_WATCHDOG_TIMEOUT ($reason); " +
+                      "reverting driving boost as a safety backstop")
+              revertDrivingBoost(clearAutomotiveActivity = true)
+              return@launch
+            }
+
+            starvedWatchdogDeferrals++
             Timber.w(
-                "No driving confirmation for $DRIVING_BOOST_WATCHDOG_TIMEOUT; " +
-                    "reverting driving boost as a safety backstop")
-            // 20 minutes without any driving evidence: not driving any more, whoever engaged it.
-            revertDrivingBoost(clearAutomotiveActivity = true)
+                "No driving confirmation for $DRIVING_BOOST_WATCHDOG_TIMEOUT, but no location " +
+                    "fixes arrived either (stream starved, e.g. Doze); deferring driving-boost " +
+                    "revert ($starvedWatchdogDeferrals/$DRIVING_BOOST_MAX_STARVED_DEFERRALS)")
           }
         }
   }
@@ -177,6 +222,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     }
     speedIndicatesDriving = false
     consecutiveDrivingSpeedFixes = 0
+    starvedWatchdogDeferrals = 0
     activityMonitoringModeController.onDrivingBoostFeatureDisabled()
   }
 
@@ -210,6 +256,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
    *    active the controller switches profiles immediately — no entry dwell, no baseline dip.
    */
   private fun onDrivingLocationForTuning(location: Location) {
+    // Before the hasSpeed gate: a fix with no speed still proves the stream is delivering, which
+    // is all the watchdog's starvation check needs to know.
+    lastDefaultStreamFixElapsedRealtime = SystemClock.elapsedRealtime()
     if (!location.hasSpeed()) return
     val speedKmh = DrivingSpeedTier.mpsToKmh(location.speed)
 
@@ -960,6 +1009,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     // Generously beyond Activity Recognition's typical STILL-detection latency, so this only ever
     // fires as a genuine backstop (see armDrivingBoostWatchdog).
     private val DRIVING_BOOST_WATCHDOG_TIMEOUT = 20.minutes
+
+    // How many consecutive watchdog windows may pass with the location stream delivering nothing
+    // before we revert the driving boost anyway. Covers a long Doze (the boost costs nothing while
+    // the locator is suppressed) without pinning the boost on forever if the stream never returns.
+    private const val DRIVING_BOOST_MAX_STARVED_DEFERRALS = 3
   }
 
   class LocationCallbackWithReportType(
