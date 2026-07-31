@@ -27,6 +27,14 @@ class LocationRepo @Inject constructor() {
   var currentBlueDotOnMapLocation: LatLng? = null
 
   /**
+   * The most recently detected motion state, in OwnTracks `motionactivities` form, ready to be
+   * attached to outgoing locations. Null when we don't know: activity recognition is switched off,
+   * unpermitted, or unavailable (oss). Written from a broadcast receiver and read on the location
+   * callback thread, hence volatile.
+   */
+  @Volatile var currentMotionActivities: List<String>? = null
+
+  /**
    * Where the map was last moved to. This might have been from an explicit user action, or from the
    * map being moved due to being in DEVICE or CONTACT modes
    */

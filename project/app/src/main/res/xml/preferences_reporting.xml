@@ -7,6 +7,12 @@
         app:summary="@string/preferencesPubExtendedDataSummary"
         app:title="@string/preferencesPubExtendedData" />
     <androidx.preference.SwitchPreferenceCompat
+        app:dependency="extendedData"
+        app:iconSpaceReserved="false"
+        app:key="publishMotionActivities"
+        app:summary="@string/preferencesPublishMotionActivitiesSummary"
+        app:title="@string/preferencesPublishMotionActivities" />
+    <androidx.preference.SwitchPreferenceCompat
         app:iconSpaceReserved="false"
         app:key="publishLocationOnConnect"
         app:summary="@string/preferencesRepublishOnReconnectSummary"

@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.ArgumentMatchers.anyString
@@ -717,5 +718,40 @@ class ParserTest {
     val parser = Parser(encryptionProvider)
     val input: String = MessageFixtures.INVALID_LOCATION_MESSAGE_MISSING_TID_AND_TOPIC
     parser.fromJson(input) as MessageLocation
+  }
+
+  @Test
+  fun `Parser can deserialize a location message with motionactivities`() {
+    val parser = Parser(encryptionProvider)
+    val input =
+        """{"_type":"location","tid":"s5","tst":1514455575,"lat":52.3,"lon":5.0,"motionactivities":["automotive","stationary"]}"""
+    val message = parser.fromJson(input) as MessageLocation
+    assertEquals(listOf("automotive", "stationary"), message.motionActivities)
+  }
+
+  @Test
+  fun `Parser can deserialize a location message without motionactivities`() {
+    val parser = Parser(encryptionProvider)
+    val input = MessageFixtures.LOCATION_DESERIALIZE_EXTENDED
+    val message = parser.fromJson(input) as MessageLocation
+    assertNull(message.motionActivities)
+  }
+
+  @Test
+  fun `Parser can serialize a location message with motionactivities`() {
+    val parser = Parser(encryptionProvider)
+    val input = extendedMessageLocation.apply { motionActivities = listOf("cycling") }
+    val jsonElement = json.parseToJsonElement(input.toJson(parser)!!).jsonObject
+    assertEquals(1, jsonElement["motionactivities"]?.jsonArray?.size)
+    assertEquals(
+        "cycling", jsonElement["motionactivities"]?.jsonArray?.get(0)?.jsonPrimitive?.content)
+  }
+
+  @Test
+  fun `Parser omits motionactivities from a location message that has none`() {
+    val parser = Parser(encryptionProvider)
+    val input = MessageLocation(MessageCreatedAtNow(FakeFixedClock())).apply { timestamp = 1 }
+    val jsonElement = json.parseToJsonElement(input.toJson(parser)!!).jsonObject
+    assertFalse(jsonElement.containsKey("motionactivities"))
   }
 }

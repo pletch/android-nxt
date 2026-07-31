@@ -288,6 +288,8 @@ To allow this, please enable Location in the device settings."</string>
     <string name="preferencesRemoteConfigurationSummary">"Enable configuration to be updated remotely (requires remote commands)"</string>
     <string name="preferencesReporting">"Reporting"</string>
     <string name="preferencesRepository">"Source Code"</string>
+    <string name="preferencesPublishMotionActivities">"Publish motion activities"</string>
+    <string name="preferencesPublishMotionActivitiesSummary">"Include the detected motion state (walking, cycling, automotive, stationary) with published locations. Requires Google Play Services and the physical activity permission"</string>
     <string name="preferencesRepublishOnReconnect">"Publish location on MQTT connect"</string>
     <string name="preferencesRepublishOnReconnectSummary">"Publish the last known location and current extended data immediately on connecting to MQTT"</string>
     <string name="preferencesReverseGeocodeProvider">"Reverse Geocode Provider"</string>

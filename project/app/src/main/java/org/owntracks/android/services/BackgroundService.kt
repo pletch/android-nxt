@@ -55,6 +55,8 @@ import org.owntracks.android.data.repos.LocationRepo
 import org.owntracks.android.data.waypoints.WaypointsRepo
 import org.owntracks.android.di.CoroutineScopes
 import org.owntracks.android.geocoding.GeocoderProvider
+import org.owntracks.android.location.ActivityRecognitionClient
+import org.owntracks.android.location.DetectedActivityChange
 import org.owntracks.android.location.LatLng
 import org.owntracks.android.location.LocationAvailability
 import org.owntracks.android.location.LocationCallback
@@ -110,6 +112,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   @Inject lateinit var endpointStateRepo: EndpointStateRepo
 
   @Inject lateinit var geofencingClient: GeofencingClient
+
+  @Inject lateinit var activityRecognitionClient: ActivityRecognitionClient
 
   @Inject lateinit var locationProviderClient: LocationProviderClient
 
@@ -247,6 +251,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     stopForeground(STOP_FOREGROUND_REMOVE)
     unregisterReceiver(powerBroadcastReceiver)
     significantMotionSensor.cancel()
+    activityRecognitionClient.removeActivityUpdates()
     preferences.unregisterOnPreferenceChangedListener(this)
     messageProcessor.stopSendingMessages()
     super.onDestroy()
@@ -314,6 +319,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
           notificationManagerCompat.cancel(BACKGROUND_LOCATION_RESTRICTION_NOTIFICATION_TAG, 0)
           return
         }
+        // This comes from the [ActivityRecognitionReceiver]
+        INTENT_ACTION_ACTIVITY_CHANGE -> {
+          intent.getIntArrayExtra(EXTRA_ACTIVITY_CHANGE_ORDINALS)?.let(::onActivityChange)
+          return
+        }
         INTENT_ACTION_BOOT_COMPLETED,
         INTENT_ACTION_PACKAGE_REPLACED -> {
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -364,7 +374,40 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     setupLocationRequest()
     scheduler.scheduleLocationPing()
     significantMotionSensor.setup()
+    setupActivityRecognition()
     messageProcessor.initialize()
+  }
+
+  /**
+   * Subscribes to (or unsubscribes from) activity transitions, depending on whether the user has
+   * opted in and granted the permission. On the way out we also forget the last known motion state,
+   * so that a stale one can't keep being attached to published locations.
+   */
+  private fun setupActivityRecognition() {
+    if (preferences.publishMotionActivities &&
+        requirementsChecker.hasActivityRecognitionPermission()) {
+      activityRecognitionClient.requestActivityUpdates {
+        // Registration is asynchronous, and fails if Play Services isn't ready yet, which is
+        // typically what happens when we're started at boot. Nothing else would come along and
+        // register us, so try again shortly.
+        runThingsOnOtherThreads.postOnServiceHandlerDelayed(
+            ::setupActivityRecognition, ACTIVITY_RECOGNITION_RETRY_DELAY_MILLIS)
+      }
+    } else {
+      activityRecognitionClient.removeActivityUpdates()
+      locationRepo.currentMotionActivities = null
+    }
+  }
+
+  private fun onActivityChange(changeOrdinals: IntArray) {
+    val changes = DetectedActivityChange.entries
+    val motionActivities =
+        changeOrdinals.filter { it in changes.indices }.map { changes[it].motionActivity }.distinct()
+    if (motionActivities.isEmpty()) {
+      return
+    }
+    Timber.d("Motion activities are now $motionActivities")
+    locationRepo.currentMotionActivities = motionActivities
   }
 
   private fun notifyUserOfBackgroundLocationRestriction() {
@@ -648,6 +691,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     if (properties.intersect(PREFERENCES_THAT_WIPE_QUEUE_AND_CONTACTS).isNotEmpty()) {
       lifecycleScope.launch { contactsRepo.clearAll() }
     }
+    if (properties.contains(Preferences::publishMotionActivities.name)) {
+      setupActivityRecognition()
+    }
     if (properties.contains(Preferences::experimentalFeatures.name)) {
       // Handle significant motion sensor based on experimental feature toggle
       if (preferences.experimentalFeatures.contains(
@@ -700,6 +746,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         "org.owntracks.android.CLEAR_EVENT_NOTIFICATIONS"
     private const val INTENT_ACTION_CLEAR_CONTACTS = "org.owntracks.android.CLEAR_CONTACTS"
     const val INTENT_ACTION_CHANGE_MONITORING = "org.owntracks.android.CHANGE_MONITORING"
+    // Internal only: deliberately absent from the ExternalIntentReceiver filter, so that another
+    // app can't spoof our motion state
+    const val INTENT_ACTION_ACTIVITY_CHANGE = "org.owntracks.android.ACTIVITY_CHANGE"
+    const val EXTRA_ACTIVITY_CHANGE_ORDINALS = "activityChangeOrdinals"
+    private const val ACTIVITY_RECOGNITION_RETRY_DELAY_MILLIS = 30_000L
     private const val INTENT_ACTION_BOOT_COMPLETED = "android.intent.action.BOOT_COMPLETED"
     private const val INTENT_ACTION_PACKAGE_REPLACED = "android.intent.action.MY_PACKAGE_REPLACED"
     const val UPDATE_CURRENT_INTENT_FLAGS =

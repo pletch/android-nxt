@@ -65,6 +65,7 @@ interface DefaultsProvider {
       Preferences::pubRetain -> true
       Preferences::pubTopicBase -> "owntracks/%u/%d"
       Preferences::publishLocationOnConnect -> false
+      Preferences::publishMotionActivities -> false
       Preferences::cmd -> true
       Preferences::remoteConfiguration -> false
       Preferences::setupCompleted -> false

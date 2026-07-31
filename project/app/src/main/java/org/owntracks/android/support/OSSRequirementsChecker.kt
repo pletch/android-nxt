@@ -43,4 +43,12 @@ open class OSSRequirementsChecker @Inject constructor(open val context: Context)
       } else {
         true
       }
+
+  override fun hasActivityRecognitionPermission(): Boolean =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACTIVITY_RECOGNITION) ==
+            PackageManager.PERMISSION_GRANTED
+      } else {
+        true
+      }
 }

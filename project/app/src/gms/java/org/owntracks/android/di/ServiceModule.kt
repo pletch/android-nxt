@@ -6,7 +6,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.components.ServiceComponent
 import dagger.hilt.android.scopes.ServiceScoped
+import org.owntracks.android.gms.location.GMSActivityRecognitionClient
 import org.owntracks.android.gms.location.geofencing.GMSGeofencingClient
+import org.owntracks.android.location.ActivityRecognitionClient
 import org.owntracks.android.location.geofencing.GeofencingClient
 
 @InstallIn(ServiceComponent::class)
@@ -15,4 +17,9 @@ class ServiceModule {
   @Provides
   @ServiceScoped
   fun getGeofencingClient(service: Service): GeofencingClient = GMSGeofencingClient.create(service)
+
+  @Provides
+  @ServiceScoped
+  fun getActivityRecognitionClient(service: Service): ActivityRecognitionClient =
+      GMSActivityRecognitionClient.create(service)
 }

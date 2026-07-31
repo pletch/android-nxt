@@ -222,6 +222,7 @@ constructor(
                 conn = deviceMetricsProvider.connectionType.value
                 monitoringMode = preferences.monitoring
                 source = location.provider
+                motionActivities = locationRepo.currentMotionActivities
               }
             } else {
               fromLocation(location, Build.VERSION.SDK_INT)

@@ -318,6 +318,8 @@ constructor(
 
   @Preference var publishLocationOnConnect: Boolean by preferencesStore
 
+  @Preference var publishMotionActivities: Boolean by preferencesStore
+
   @Preference var cmd: Boolean by preferencesStore
 
   @Preference var remoteConfiguration: Boolean by preferencesStore

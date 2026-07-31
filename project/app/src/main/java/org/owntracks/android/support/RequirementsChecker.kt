@@ -10,4 +10,6 @@ interface RequirementsChecker {
   fun isPlayServicesCheckPassed(): Boolean
 
   fun hasNotificationPermissions(): Boolean
+
+  fun hasActivityRecognitionPermission(): Boolean
 }

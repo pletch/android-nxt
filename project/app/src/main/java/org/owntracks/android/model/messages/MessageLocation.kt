@@ -106,6 +106,10 @@ open class MessageLocation(
 
   @SerialName("inregions") var inregions: List<String>? = null
 
+  // The motion states detected on the device: a combination of stationary, walking, running,
+  // automotive, cycling and unknown. Omitted from the wire when we have nothing to report.
+  @SerialName("motionactivities") var motionActivities: List<String>? = null
+
   @SerialName("BSSID") var bssid: String? = null
 
   @SerialName("SSID") var ssid: String? = null
