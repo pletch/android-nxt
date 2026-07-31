@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.gradle.api.tasks.testing.logging.TestLogEvent
 
 plugins {
@@ -229,6 +230,42 @@ tasks.withType<Test> {
 tasks.withType<JavaCompile>().configureEach { options.isFork = true }
 
 tasks.matching { it.name.endsWith("AndroidTest") }.configureEach { outputs.upToDateWhen { false } }
+
+// Convenience for sideloading onto a test device: after assembling the gmsDebug APK, copy it to a
+// fixed path so a reinstall flow can always point at the same filename instead of chasing the
+// build output. Opt in by setting `gmsDebugApkCopyDestination` to an absolute path (including the
+// filename) in local.properties, which is gitignored — so the machine-specific path never lands in
+// version control and this stays inert on CI and for anyone who hasn't opted in.
+val gmsDebugApkCopyDestination: String? =
+    providers
+        .fileContents(rootProject.layout.projectDirectory.file("local.properties"))
+        .asText
+        .orNull
+        ?.let { text -> Properties().apply { load(text.reader()) } }
+        ?.getProperty("gmsDebugApkCopyDestination")
+        ?: providers.gradleProperty("gmsDebugApkCopyDestination").orNull
+
+if (gmsDebugApkCopyDestination != null) {
+  val destination = File(gmsDebugApkCopyDestination)
+  val sourceApk = layout.buildDirectory.file("outputs/apk/gms/debug/app-gms-debug.apk").get().asFile
+  val copyGmsDebugApk =
+      tasks.register("copyGmsDebugApk") {
+        description = "Copies the assembled gmsDebug APK to $destination for sideloading."
+        // Deliberately not a Copy task: Copy snapshots its whole destination *directory*, and the
+        // destination here is typically a home directory containing things Gradle can't snapshot
+        // (sockets, unreadable files). Declaring the single output file avoids touching the rest.
+        inputs.file(sourceApk).withPropertyName("sourceApk")
+        outputs.file(destination).withPropertyName("destination")
+        doLast {
+          // Silently doing nothing here would leave a stale APK sitting at the destination —
+          // exactly the failure this task exists to prevent. Fail loudly instead.
+          check(sourceApk.exists()) { "Expected the assembled APK at $sourceApk, but it's missing" }
+          sourceApk.copyTo(destination, overwrite = true)
+          logger.lifecycle("Copied gmsDebug APK to $destination")
+        }
+      }
+  tasks.matching { it.name == "assembleGmsDebug" }.configureEach { finalizedBy(copyGmsDebugApk) }
+}
 
 dependencies {
   implementation(libs.bundles.kotlin)
