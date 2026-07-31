@@ -1053,17 +1053,24 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
 
     fun logPowerState(action: String) {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val lightIdle =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+              "isDeviceLightIdleMode=${powerManager.isDeviceLightIdleMode} "
+            } else {
+              ""
+            }
+        // Single pre-built string, passed as the message rather than as a format: the values are
+        // already interpolated, so any format specifier here would be applied to them a second
+        // time.
         Timber.d(
-            "%snull", "triggeringAction=$action " +
+            "triggeringAction=$action " +
                 "isPowerSaveMode=${powerManager.isPowerSaveMode} " +
                 "locationPowerSaveMode=${powerManager.locationPowerSaveMode} " +
                 "isDeviceIdleMode=${powerManager.isDeviceIdleMode} " +
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                  "isDeviceLightIdleMode=${powerManager.isDeviceLightIdleMode} "
-                } else {
-                  ""
-                } +
-                "isInteractive=${powerManager.isInteractive} isIgnoringBatteryOptimizations=${powerManager.isIgnoringBatteryOptimizations(applicationContext.packageName)}")
+                lightIdle +
+                "isInteractive=${powerManager.isInteractive} " +
+                "isIgnoringBatteryOptimizations=" +
+                "${powerManager.isIgnoringBatteryOptimizations(applicationContext.packageName)}")
       }
     }
   }
