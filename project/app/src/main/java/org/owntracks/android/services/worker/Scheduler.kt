@@ -4,12 +4,12 @@ import android.content.Context
 import android.os.Build
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
-import androidx.work.WorkRequest
 import androidx.work.WorkRequest.Companion.MIN_BACKOFF_MILLIS
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Duration
@@ -34,9 +34,21 @@ constructor(
       Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
   private val workManager = WorkManager.getInstance(context)
 
-  /** Used by the background service to periodically ping a location */
-  fun scheduleLocationPing() {
-    val pingWorkRequest: WorkRequest =
+  /**
+   * Used by the background service to periodically ping a location.
+   *
+   * Called on every actionless start of the background service — including each time the map is
+   * opened — so it must be idempotent. A [PeriodicWorkRequest] runs its first iteration as soon as
+   * it is enqueued, so cancel-then-enqueue published a spurious PING on every call *and* restarted
+   * the interval from zero, meaning the scheduled ping never fired on its own for anyone who opened
+   * the app more often than [Preferences.ping] minutes. Enqueued as unique work with KEEP: an
+   * existing schedule is left running untouched.
+   *
+   * [replaceExisting] is for the one caller that genuinely needs to re-arm — a changed ping interval
+   * — where the running schedule is stale by definition.
+   */
+  fun scheduleLocationPing(replaceExisting: Boolean = false) {
+    val pingWorkRequest: PeriodicWorkRequest =
         PeriodicWorkRequest.Builder(
                 SendLocationPingWorker::class.java, preferences.ping.toLong(), TimeUnit.MINUTES)
             .addTag(PERIODIC_TASK_SEND_LOCATION_PING)
@@ -44,9 +56,11 @@ constructor(
             .build()
     Timber.d(
         "WorkManager queue task $PERIODIC_TASK_SEND_LOCATION_PING as ${pingWorkRequest.id} " +
-            "with interval ${preferences.ping} minutes")
-    workManager.cancelAllWorkByTag(PERIODIC_TASK_SEND_LOCATION_PING)
-    workManager.enqueue(pingWorkRequest)
+            "with interval ${preferences.ping} minutes (replaceExisting=$replaceExisting)")
+    workManager.enqueueUniquePeriodicWork(
+        PERIODIC_TASK_SEND_LOCATION_PING,
+        if (replaceExisting) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP,
+        pingWorkRequest)
   }
 
   /** Cancels all WorkManager tasks. Called on app exit */
@@ -103,8 +117,7 @@ constructor(
 
   override fun onPreferenceChanged(properties: Set<String>) {
     if (properties.contains(Preferences::ping.name)) {
-      workManager.cancelAllWorkByTag(PERIODIC_TASK_SEND_LOCATION_PING)
-      scheduleLocationPing()
+      scheduleLocationPing(replaceExisting = true)
     }
   }
 }
