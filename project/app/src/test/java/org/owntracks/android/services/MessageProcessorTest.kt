@@ -18,6 +18,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.doReturn
@@ -65,6 +66,10 @@ class MessageProcessorTest {
     /**
      * Arms a fresh detector. Awaiting the returned deferred completes once a sender loop reaches
      * [awaitMessage]; it timing out means no loop is running.
+     *
+     * Must be armed *before* whatever is supposed to start the loop. [awaitMessage] is reached once
+     * and then parks forever, so a detector armed after the loop has already got there can never be
+     * satisfied — which is a flaky failure, not a real one.
      */
     fun armLoopDetector(): CompletableDeferred<Unit> =
         CompletableDeferred<Unit>().also { loopReachedAwait = it }
@@ -150,8 +155,9 @@ class MessageProcessorTest {
 
   @Test
   fun `stopSendingMessages stops the outbound sender loop`() {
+    val started = queue.armLoopDetector()
     messageProcessor.initialize()
-    assertLoopRunning(queue.armLoopDetector(), "sender loop should be running after initialize")
+    assertLoopRunning(started, "sender loop should be running after initialize")
 
     messageProcessor.stopSendingMessages()
 
@@ -170,8 +176,9 @@ class MessageProcessorTest {
    */
   @Test
   fun `initialize re-arms the sender loop after the background service is destroyed and recreated`() {
+    val started = queue.armLoopDetector()
     messageProcessor.initialize() // service starts
-    assertLoopRunning(queue.armLoopDetector(), "sender loop should be running after initialize")
+    assertLoopRunning(started, "sender loop should be running after initialize")
 
     messageProcessor.stopSendingMessages() // BackgroundService.onDestroy
 
@@ -184,8 +191,9 @@ class MessageProcessorTest {
   /** Whatever triggered the reconnect, the queue still needs something alive to drain it. */
   @Test
   fun `reconnect re-arms the sender loop`() {
+    val started = queue.armLoopDetector()
     messageProcessor.initialize()
-    assertLoopRunning(queue.armLoopDetector(), "sender loop should be running after initialize")
+    assertLoopRunning(started, "sender loop should be running after initialize")
 
     messageProcessor.stopSendingMessages()
 
@@ -201,8 +209,9 @@ class MessageProcessorTest {
    */
   @Test
   fun `repeated initialize calls do not start a second loop`() {
+    val started = queue.armLoopDetector()
     messageProcessor.initialize()
-    assertLoopRunning(queue.armLoopDetector(), "sender loop should be running after initialize")
+    assertLoopRunning(started, "sender loop should be running after initialize")
 
     // Already-running loop is parked in awaitMessage; a second loop would have to call it again.
     val detector = queue.armLoopDetector()
@@ -214,6 +223,20 @@ class MessageProcessorTest {
           "a second sender loop should not have been started",
           withTimeoutOrNull(SETTLE) { detector.await() })
     }
+  }
+
+  /**
+   * The watchdog asks this on every run, including in HTTP mode where there is no persistent
+   * connection to check. Reporting unhealthy there would have it reconnect an endpoint that was
+   * never connected in the first place, every fifteen minutes, forever.
+   */
+  @Test
+  fun `checkConnection reports healthy for an endpoint with no persistent connection`() {
+    val started = queue.armLoopDetector()
+    messageProcessor.initialize() // preferences.mode is HTTP
+    assertLoopRunning(started, "sender loop should be running after initialize")
+
+    runBlocking { assertTrue(messageProcessor.checkConnection()) }
   }
 
   companion object {

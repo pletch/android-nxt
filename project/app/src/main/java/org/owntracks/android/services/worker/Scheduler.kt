@@ -1,7 +1,6 @@
 package org.owntracks.android.services.worker
 
 import android.content.Context
-import android.os.Build
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -10,12 +9,15 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
-import androidx.work.WorkRequest.Companion.MIN_BACKOFF_MILLIS
+import androidx.work.WorkRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.time.Duration
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import org.owntracks.android.preferences.Preferences
 import timber.log.Timber
 
@@ -67,52 +69,124 @@ constructor(
   fun cancelAllTasks() {
     Timber.d("Cancelling task tag (all mqtt tasks) $ONETIME_TASK_MQTT_RECONNECT")
     workManager.cancelUniqueWork(ONETIME_TASK_MQTT_RECONNECT)
+    workManager.cancelUniqueWork(PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG)
     workManager.cancelAllWorkByTag(PERIODIC_TASK_SEND_LOCATION_PING)
+    resetMqttReconnectBackoff()
   }
 
   /**
-   * [expedite] replaces any already-scheduled reconnect job (which may be minutes-to-hours out on
-   * WorkManager's grown retry backoff) with a fresh immediate one. Use it for genuine new signals
-   * that the connection is wanted *now* — queued outbound work, a wedged publish — and never from a
-   * failure path, where replacing the retrying job would reset its backoff to the first attempt on
-   * every failure.
+   * Starts the periodic check that the MQTT connection is still alive, reconnecting it if not.
    *
-   * An expedited request deliberately carries no initial delay. It is enqueued with REPLACE, so a
-   * delayed one would have its countdown re-armed from zero by the next expedite — and a caller
-   * that expedites faster than [RECONNECT_DELAY_SECONDS] (an outbound retry loop backing off
-   * against a disconnected endpoint) could then push the reconnect out indefinitely, leaving the
-   * connection down for as long as the queue kept asking for it. Expediting is a request to connect
-   * now; the settling pause belongs only to the passive path that reacts to a drop.
+   * Every other trigger for a reconnect is reactive — a connectivity callback, a dropped
+   * connection, a failed publish — so anything they collectively fail to notice is never noticed at
+   * all. The most important such case is a connection that is dead but still believed to be up,
+   * which produces no event of any kind.
+   *
+   * Enqueued with [ExistingPeriodicWorkPolicy.KEEP] so that repeatedly re-activating the endpoint
+   * cannot keep pushing the next run into the future and starve the check entirely.
+   */
+  fun scheduleMqttConnectionWatchdog() {
+    PeriodicWorkRequest.Builder(
+            MQTTConnectionWatchdogWorker::class.java,
+            CONNECTION_WATCHDOG_INTERVAL.inWholeMinutes,
+            TimeUnit.MINUTES)
+        .addTag(PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG)
+        .setConstraints(anyNetworkConstraint)
+        .build()
+        .run {
+          workManager.enqueueUniquePeriodicWork(
+              PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG, ExistingPeriodicWorkPolicy.KEEP, this)
+        }
+    Timber.i(
+        "Scheduled $PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG every $CONNECTION_WATCHDOG_INTERVAL")
+  }
+
+  /** How many consecutive reconnect attempts have been scheduled without an intervening success. */
+  private val reconnectAttempt = AtomicInteger(0)
+
+  /**
+   * Schedules an attempt to reconnect to the MQTT broker.
+   *
+   * Successive attempts back off exponentially, but never further apart than
+   * [RECONNECT_MAX_DELAY], so a broker that has been unreachable for a long time is still retried
+   * promptly once it comes back.
+   *
+   * The backoff is computed here rather than handed to WorkManager via [BackoffPolicy]: WorkManager
+   * clamps its own backoff to [WorkRequest.MAX_BACKOFF_MILLIS], which is five hours, and a run of
+   * failures reaches that in well under a day. Combined with Doze deferral on a device that isn't
+   * exempt from battery optimisation, retries at that spacing are effectively unbounded and the app
+   * never recovers on its own.
+   *
+   * [expedite] is for genuine *new* signals that the connection is wanted now — queued outbound
+   * work, a wedged publish — as opposed to another turn of a run of failures. Such a request skips
+   * the backoff delay entirely and, crucially, does not advance [reconnectAttempt]: counting it
+   * would let a caller that nudges faster than the current delay push the passive retry further out
+   * on every nudge, so "the queue wants a connection" would become "the queue prevents one". Never
+   * expedite from a failure path.
    */
   fun scheduleMqttReconnect(expedite: Boolean = false) {
-    val builder =
-        OneTimeWorkRequest.Builder(MQTTReconnectWorker::class.java)
-            .addTag(ONETIME_TASK_MQTT_RECONNECT)
-            .setBackoffCriteria(
-                BackoffPolicy.EXPONENTIAL, MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
-            .setConstraints(anyNetworkConstraint)
-    if (!expedite && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      // Pause in case there's network turmoil
-      builder.setInitialDelay(Duration.ofSeconds(RECONNECT_DELAY_SECONDS))
+    val delay =
+        if (expedite) Duration.ZERO
+        else reconnectDelayForAttempt(reconnectAttempt.getAndIncrement())
+    OneTimeWorkRequest.Builder(MQTTReconnectWorker::class.java)
+        // Pause in case there's network turmoil
+        .setInitialDelay(delay.inWholeMilliseconds, TimeUnit.MILLISECONDS)
+        .addTag(ONETIME_TASK_MQTT_RECONNECT)
+        .setConstraints(anyNetworkConstraint)
+        .build()
+        .run {
+          workManager.enqueueUniqueWork(
+              ONETIME_TASK_MQTT_RECONNECT, ExistingWorkPolicy.REPLACE, this)
+        }
+    // Logged at INFO: when this goes wrong the connection is dead for hours, and at DEBUG the
+    // evidence has long since rolled out of the in-memory log buffer by the time anyone looks.
+    Timber.i("Scheduled ONETIME_TASK_MQTT_RECONNECT job in $delay (expedite=$expedite)")
+  }
+
+  /**
+   * Puts the reconnect backoff back to its shortest delay. Called when a connection is established,
+   * so that the next disconnection is retried promptly rather than at whatever spacing the previous
+   * run of failures had reached.
+   */
+  fun resetMqttReconnectBackoff() {
+    reconnectAttempt.getAndSet(0).run {
+      if (this > 0) Timber.d("Reset MQTT reconnect backoff after $this attempts")
     }
-    // KEEP by default: this is called both to arrange a fresh retry and, redundantly, from inside a
-    // failed attempt of the retry job itself (MQTTReconnectWorker's own connect() failure). REPLACE
-    // there would swap out the in-flight/pending job for a brand new one on every failure,
-    // resetting WorkManager's exponential backoff back to its first attempt each time instead of
-    // letting it grow. KEEP leaves an already-scheduled job alone and only enqueues when none
-    // exists; expedite (see KDoc) is the escape hatch for nudges that must not wait out a grown
-    // backoff.
-    workManager.enqueueUniqueWork(
-        ONETIME_TASK_MQTT_RECONNECT,
-        if (expedite) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
-        builder.build())
-    Timber.d("Scheduled ONETIME_TASK_MQTT_RECONNECT job (expedite=$expedite)")
   }
 
   companion object {
     private const val PERIODIC_TASK_SEND_LOCATION_PING = "PERIODIC_TASK_SEND_LOCATION_PING"
     private const val ONETIME_TASK_MQTT_RECONNECT = "ONETIME_TASK_MQTT_RECONNECT"
-    private const val RECONNECT_DELAY_SECONDS = 10L
+    private const val PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG =
+        "PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG"
+
+    /**
+     * How often to verify the connection. WorkManager will not run periodic work more frequently
+     * than [PeriodicWorkRequest.MIN_PERIODIC_INTERVAL_MILLIS], which is fifteen minutes, so asking
+     * for less would achieve nothing.
+     */
+    internal val CONNECTION_WATCHDOG_INTERVAL = 15.minutes
+
+    /** Delay before the first reconnect attempt of a run. */
+    internal val RECONNECT_INITIAL_DELAY = 10.seconds
+
+    /** Ceiling on the gap between reconnect attempts, however long the failure has persisted. */
+    internal val RECONNECT_MAX_DELAY = 10.minutes
+
+    /**
+     * Exponential backoff from [RECONNECT_INITIAL_DELAY], capped at [RECONNECT_MAX_DELAY].
+     *
+     * @param attempt zero-based count of attempts already scheduled in this run of failures
+     */
+    internal fun reconnectDelayForAttempt(attempt: Int): Duration {
+      // Clamp the shift as well as the result: Int.shl only uses the low five bits of its operand,
+      // so a large attempt count would otherwise wrap around to a small — or negative — multiplier.
+      val doublings = attempt.coerceIn(0, MAX_BACKOFF_DOUBLINGS)
+      return (RECONNECT_INITIAL_DELAY * (1 shl doublings)).coerceAtMost(RECONNECT_MAX_DELAY)
+    }
+
+    /** Enough doublings to comfortably exceed [RECONNECT_MAX_DELAY] without overflowing the shift. */
+    private const val MAX_BACKOFF_DOUBLINGS = 16
   }
 
   override fun onPreferenceChanged(properties: Set<String>) {

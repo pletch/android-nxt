@@ -101,6 +101,13 @@ class MQTTMessageProcessorEndpoint(
     preferences.registerOnPreferenceChangedListener(this)
     networkChangeCallback.reset()
     connectivityManager.registerDefaultNetworkCallback(networkChangeCallback)
+    // Backstop for everything the connectivity callbacks and the reconnect worker between them
+    // fail to notice. Note that this fork's [checkConnection] is a cheap client-state read rather
+    // than upstream's PINGREQ round-trip (HiveMQ exposes no manual ping), so the watchdog here
+    // recovers a *stranded* state — DISCONNECTED/ERROR/CONNECTING that nothing else retried — and
+    // not a half-open socket that still reports connected. That case is owned by the bounded
+    // publish await in [sendMessage], which forces a reconnect on the first stuck publish.
+    scheduler.scheduleMqttConnectionWatchdog()
     scope.launch {
       try {
         connect(getEndpointConfiguration())
@@ -135,6 +142,9 @@ class MQTTMessageProcessorEndpoint(
         return@launch
       }
       endpointStateRepo.setState(EndpointState.CONNECTED)
+      // This run of failures is over, so the next one starts from the short delay again rather than
+      // inheriting however far this one had backed off.
+      scheduler.resetMqttReconnectBackoff()
       // Re-arm the outbound nudge: the next time the queue finds itself disconnected, that is a new
       // signal rather than an echo of the outage we just recovered from.
       reconnectNudgeSent.set(false)
