@@ -519,25 +519,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         }
         // This comes from the gms ActivityRecognitionReceiver
         INTENT_ACTION_ACTIVITY_TRANSITION -> {
-          if (preferences.autoMonitoringByActivity) {
-            intent.getIntArrayExtra(EXTRA_ACTIVITY_CHANGE_ORDINALS)?.forEach { ordinal ->
-              val change = DetectedActivityChange.entries[ordinal]
-              // Record the actual detected activity (independent of the driving-boost gating below)
-              // so it can be published as `motionactivities`. Last ordinal wins = current activity.
-              locationRepo.currentMotionActivities = change.toMotionActivities()
-              // When driving boost is off, treat getting in a vehicle like becoming still (revert).
-              val effective =
-                  if (change == DetectedActivityChange.IN_VEHICLE &&
-                      !preferences.boostLocatorWhileDriving) {
-                    DetectedActivityChange.STILL
-                  } else {
-                    change
-                  }
-              if (effective == DetectedActivityChange.IN_VEHICLE) {
-                armDrivingBoostWatchdog()
-              }
-              activityMonitoringModeController.onActivityChange(effective)
-            }
+          intent.getIntArrayExtra(EXTRA_ACTIVITY_CHANGE_ORDINALS)?.let {
+            onActivityChangeOrdinals(it)
           }
           return
         }
@@ -802,6 +785,38 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
           callbackForReportType[reportType]!!.value, runThingsOnOtherThreads.getBackgroundLooper())
     } else {
       Timber.e("missing location permission")
+    }
+  }
+
+  /**
+   * Applies detected activity changes, as [DetectedActivityChange] ordinals in the order they were
+   * detected.
+   *
+   * Public because it has two callers: the usual [INTENT_ACTION_ACTIVITY_TRANSITION] start command,
+   * and [ActivityChangeWorker], which binds to the service and calls this directly when the start
+   * command could not be issued because this service wasn't running and the app was in the
+   * background (see [ServiceStarter]).
+   */
+  fun onActivityChangeOrdinals(ordinals: IntArray) {
+    if (!preferences.autoMonitoringByActivity) {
+      return
+    }
+    ordinals.forEach { ordinal ->
+      val change = DetectedActivityChange.entries[ordinal]
+      // Record the actual detected activity (independent of the driving-boost gating below)
+      // so it can be published as `motionactivities`. Last ordinal wins = current activity.
+      locationRepo.currentMotionActivities = change.toMotionActivities()
+      // When driving boost is off, treat getting in a vehicle like becoming still (revert).
+      val effective =
+          if (change == DetectedActivityChange.IN_VEHICLE && !preferences.boostLocatorWhileDriving) {
+            DetectedActivityChange.STILL
+          } else {
+            change
+          }
+      if (effective == DetectedActivityChange.IN_VEHICLE) {
+        armDrivingBoostWatchdog()
+      }
+      activityMonitoringModeController.onActivityChange(effective)
     }
   }
 

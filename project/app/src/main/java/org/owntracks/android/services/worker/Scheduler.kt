@@ -3,6 +3,7 @@ package org.owntracks.android.services.worker
 import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
+import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -63,6 +64,30 @@ constructor(
         PERIODIC_TASK_SEND_LOCATION_PING,
         if (replaceExisting) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP,
         pingWorkRequest)
+  }
+
+  /**
+   * Delivers an activity change that could not be delivered by starting the background service,
+   * because Android refused the foreground service start (see [ServiceStarter]).
+   *
+   * Enqueued as unique work with [ExistingWorkPolicy.APPEND_OR_REPLACE] so that a run of deferred
+   * changes is delivered in the order it was detected — the order is the meaning, since the last
+   * change is the current activity. APPEND_OR_REPLACE rather than APPEND so that a previously
+   * failed or cancelled delivery cannot block every subsequent one.
+   */
+  fun scheduleActivityChange(ordinals: IntArray) {
+    OneTimeWorkRequest.Builder(ActivityChangeWorker::class.java)
+        .addTag(ONETIME_TASK_ACTIVITY_CHANGE)
+        .setInputData(
+            Data.Builder()
+                .putIntArray(ActivityChangeWorker.INPUT_ACTIVITY_CHANGE_ORDINALS, ordinals)
+                .build())
+        .build()
+        .run {
+          workManager.enqueueUniqueWork(
+              ONETIME_TASK_ACTIVITY_CHANGE, ExistingWorkPolicy.APPEND_OR_REPLACE, this)
+        }
+    Timber.i("Scheduled $ONETIME_TASK_ACTIVITY_CHANGE to deliver ${ordinals.size} change(s)")
   }
 
   /** Cancels all WorkManager tasks. Called on app exit */
@@ -157,6 +182,7 @@ constructor(
   companion object {
     private const val PERIODIC_TASK_SEND_LOCATION_PING = "PERIODIC_TASK_SEND_LOCATION_PING"
     private const val ONETIME_TASK_MQTT_RECONNECT = "ONETIME_TASK_MQTT_RECONNECT"
+    private const val ONETIME_TASK_ACTIVITY_CHANGE = "ONETIME_TASK_ACTIVITY_CHANGE"
     private const val PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG =
         "PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG"
 

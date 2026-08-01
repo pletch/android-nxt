@@ -9,8 +9,11 @@ import com.google.android.gms.location.ActivityRecognitionResult
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
+import dagger.hilt.android.EarlyEntryPoints
+import org.owntracks.android.BaseApp
 import org.owntracks.android.services.BackgroundService
 import org.owntracks.android.services.DetectedActivityChange
+import org.owntracks.android.services.worker.ActivityChangeWorker
 import org.owntracks.android.ui.mixins.ServiceStarter
 import timber.log.Timber
 
@@ -64,14 +67,30 @@ class ActivityRecognitionReceiver : BroadcastReceiver(), ServiceStarter by Servi
     forwardChanges(context, mutableListOf(change.ordinal))
   }
 
+  /**
+   * Hands the detected changes to [BackgroundService], by starting it if allowed and otherwise by
+   * scheduling an [ActivityChangeWorker] to bind to it instead.
+   *
+   * These broadcasts arrive whenever the activity changes, which is routinely while the app is in
+   * the background with the service not running. Starting a foreground service is refused in that
+   * state, and dropping the change there would mean losing the driving boost for an entire trip
+   * that began while the phone was idle — the case the boost exists for.
+   */
   private fun forwardChanges(context: Context, changeOrdinals: List<Int>) {
-    if (changeOrdinals.isNotEmpty()) {
-      startService(
-          context,
-          BackgroundService.INTENT_ACTION_ACTIVITY_TRANSITION,
-          Intent()
-              .putExtra(
-                  BackgroundService.EXTRA_ACTIVITY_CHANGE_ORDINALS, changeOrdinals.toIntArray()))
+    if (changeOrdinals.isEmpty()) {
+      return
+    }
+    val ordinals = changeOrdinals.toIntArray()
+    val started =
+        startService(
+            context,
+            BackgroundService.INTENT_ACTION_ACTIVITY_TRANSITION,
+            Intent().putExtra(BackgroundService.EXTRA_ACTIVITY_CHANGE_ORDINALS, ordinals))
+    if (!started) {
+      Timber.i("Could not start the service for an activity change; deferring it to WorkManager")
+      EarlyEntryPoints.get(context.applicationContext, BaseApp.ApplicationEntrypoint::class.java)
+          .scheduler()
+          .scheduleActivityChange(ordinals)
     }
   }
 
