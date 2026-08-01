@@ -175,7 +175,7 @@ open class BaseApp :
           |Thread: ${t.name}
           |Exception: ${e.message}
           |Stacktrace:
-          |${e.stackTrace.joinToString("\n\t")}
+          |${e.stackTraceToString()}
           """
                     .trimMargin())
       } catch (e: Exception) {
