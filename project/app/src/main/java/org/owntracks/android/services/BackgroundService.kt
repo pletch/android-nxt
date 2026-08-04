@@ -24,6 +24,7 @@ import android.text.style.StyleSpan
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleCoroutineScope
@@ -78,9 +79,11 @@ import org.owntracks.android.preferences.Preferences.Companion.PREFERENCES_THAT_
 import org.owntracks.android.preferences.types.ConnectionMode
 import org.owntracks.android.preferences.types.MonitoringMode.Companion.getByValue
 import org.owntracks.android.services.worker.Scheduler
+import org.owntracks.android.services.worker.StartBackgroundServiceWorker
 import org.owntracks.android.support.DateFormatter.formatDate
 import org.owntracks.android.support.RequirementsChecker
 import org.owntracks.android.support.RunThingsOnOtherThreads
+import org.owntracks.android.support.receiver.LocationWakeupReceiver
 import org.owntracks.android.test.SimpleIdlingResource
 import org.owntracks.android.ui.map.MapActivity
 import timber.log.Timber
@@ -350,6 +353,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   // updates, which resets its transition detector and can drop transitions entirely.
   private var activityUpdatesRegistered = false
 
+  // Whether this process has run setupAndStartService(). Location wake-ups arrive on the location
+  // interval, so they must be able to tell "the process died and I am reviving it" — the case the
+  // wake-up registration exists for — from the far more common "everything is fine".
+  private var serviceSetupComplete = false
+
   @EntryPoint
   @InstallIn(SingletonComponent::class)
   internal interface ServiceEntrypoint {
@@ -469,6 +477,10 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     Timber.v("Backgroundservice onDestroy")
     stopForeground(STOP_FOREGROUND_REMOVE)
     unregisterReceiver(powerBroadcastReceiver)
+    // Only on an orderly destroy — a crash never runs this, which is exactly when we want the
+    // wake-up registration left in place to bring us back.
+    locationProviderClient.removeLocationUpdates(locationWakeupPendingIntent(this))
+    serviceSetupComplete = false
     significantMotionSensor.cancel()
     if (requirementsChecker.hasActivityRecognitionPermission()) {
       activityRecognitionClient.removeActivityUpdates()
@@ -514,6 +526,16 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
           val event = fromIntent(intent)
           if (!event.hasError() && !event.triggeringGeofences.isNullOrEmpty()) {
             lifecycleScope.launch { onGeofencingEvent(fromIntent(intent)) }
+          }
+          return
+        }
+        // This comes from the [LocationWakeupReceiver]. Its purpose is served simply by having
+        // started this process: if we were already set up, there is nothing to do, and re-running
+        // setup on every fix would churn the location request for no gain.
+        INTENT_ACTION_LOCATION_WAKEUP -> {
+          if (!serviceSetupComplete) {
+            Timber.i("Location wake-up started a service that wasn't set up; setting it up")
+            setupAndStartService()
           }
           return
         }
@@ -602,6 +624,26 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     significantMotionSensor.setup()
     setupActivityRecognition()
     messageProcessor.initialize()
+    serviceSetupComplete = true
+  }
+
+  /**
+   * Starts the service on behalf of [StartBackgroundServiceWorker], which reaches us by binding
+   * because Android refused it a foreground service start.
+   *
+   * Binding alone would destroy the service again as soon as the worker unbinds, so we re-issue the
+   * start from inside: by then this service is already in the foreground, which is itself the
+   * exemption that makes the second start permitted.
+   */
+  fun startFromWakeup() {
+    if (!serviceSetupComplete) {
+      setupAndStartService()
+    }
+    try {
+      ContextCompat.startForegroundService(this, Intent(this, BackgroundService::class.java))
+    } catch (e: Exception) {
+      Timber.e(e, "Unable to promote the bound service to a started one after a wake-up")
+    }
   }
 
   /**
@@ -861,6 +903,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
           request,
           callbackForReportType[MessageLocation.ReportType.DEFAULT]!!.value,
           runThingsOnOtherThreads.getBackgroundLooper())
+      // A second registration for the same request, delivered by PendingIntent instead of to the
+      // callback above. Identical parameters, so the provider merges the two and the fixes cost
+      // nothing extra — but this one is held outside our process and survives it dying, which the
+      // callback cannot. See [LocationWakeupReceiver].
+      locationProviderClient.requestLocationUpdates(request, locationWakeupPendingIntent(this))
       return Result.success(Unit)
     } else {
       return Result.failure(Exception("Missing location permission"))
@@ -1009,6 +1056,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     const val INTENT_ACTION_SEND_LOCATION_USER = "org.owntracks.android.SEND_LOCATION_USER"
     const val INTENT_ACTION_SEND_EVENT_CIRCULAR = "org.owntracks.android.SEND_EVENT_CIRCULAR"
     const val INTENT_ACTION_ACTIVITY_TRANSITION = "org.owntracks.android.ACTIVITY_TRANSITION"
+    const val INTENT_ACTION_LOCATION_WAKEUP = "org.owntracks.android.LOCATION_WAKEUP"
     // IntArray extra on INTENT_ACTION_ACTIVITY_TRANSITION: one DetectedActivityChange ordinal per
     // detected ENTER transition (on-foot / in-vehicle / still).
     const val EXTRA_ACTIVITY_CHANGE_ORDINALS = "activityChangeOrdinals"
@@ -1020,6 +1068,25 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     private const val INTENT_ACTION_PACKAGE_REPLACED = "android.intent.action.MY_PACKAGE_REPLACED"
     const val UPDATE_CURRENT_INTENT_FLAGS =
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+
+    /**
+     * The PendingIntent the location provider delivers wake-up fixes to. Mutable, because the
+     * provider fills the location into the intent it sends; the same request code every time, so
+     * registering repeatedly (each driving-tier re-tune does) updates one registration rather than
+     * accumulating them.
+     */
+    private fun locationWakeupPendingIntent(context: Context): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            LOCATION_WAKEUP_REQUEST_CODE,
+            Intent(context, LocationWakeupReceiver::class.java),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+              PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            } else {
+              PendingIntent.FLAG_UPDATE_CURRENT
+            })
+
+    private const val LOCATION_WAKEUP_REQUEST_CODE = 2
 
     // Generously beyond Activity Recognition's typical STILL-detection latency, so this only ever
     // fires as a genuine backstop (see armDrivingBoostWatchdog).

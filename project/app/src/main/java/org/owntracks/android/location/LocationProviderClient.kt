@@ -1,5 +1,6 @@
 package org.owntracks.android.location
 
+import android.app.PendingIntent
 import android.location.Location
 import android.os.Looper
 import androidx.annotation.RequiresPermission
@@ -36,6 +37,24 @@ abstract class LocationProviderClient {
   )
 
   abstract fun removeLocationUpdates(clientCallBack: LocationCallback)
+
+  /**
+   * Requests location updates delivered to [pendingIntent] rather than to an in-process callback.
+   *
+   * The registration is held by the location provider, not by us, so it survives our process dying
+   * and restarts it to deliver the next fix. A callback-based request cannot do that: it is torn
+   * down with the process that made it, which leaves the densest signal the app receives unable to
+   * bring it back. See the wake-up registration in `BackgroundService.setupLocationRequest`.
+   */
+  @RequiresPermission(
+      anyOf =
+          ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"])
+  abstract fun requestLocationUpdates(
+      locationRequest: LocationRequest,
+      pendingIntent: PendingIntent
+  )
+
+  abstract fun removeLocationUpdates(pendingIntent: PendingIntent)
 
   abstract fun flushLocations()
 

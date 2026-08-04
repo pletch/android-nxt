@@ -1,5 +1,6 @@
 package org.owntracks.android.gms.location
 
+import android.app.PendingIntent
 import android.content.Context
 import android.location.Location
 import android.os.Looper
@@ -89,6 +90,29 @@ class GMSLocationProviderClient(
               "GMS Background location update request completed: " +
                   "Success=${it.isSuccessful} Cancelled=${it.isCanceled}")
         }
+  }
+
+  @RequiresPermission(
+      anyOf =
+          ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"])
+  override fun requestLocationUpdates(
+      locationRequest: LocationRequest,
+      pendingIntent: PendingIntent
+  ) {
+    val gmsLocationRequest = locationRequest.toGMSLocationRequest()
+    Timber.d("Requesting wake-up location updates via PendingIntent: $gmsLocationRequest")
+    fusedLocationProviderClient
+        .requestLocationUpdates(gmsLocationRequest, pendingIntent)
+        .addOnCompleteListener {
+          Timber.d(
+              "GMS wake-up location update request completed: " +
+                  "Success=${it.isSuccessful} Cancelled=${it.isCanceled}")
+        }
+  }
+
+  override fun removeLocationUpdates(pendingIntent: PendingIntent) {
+    Timber.d("Removing wake-up location updates")
+    fusedLocationProviderClient.removeLocationUpdates(pendingIntent)
   }
 
   override fun removeLocationUpdates(clientCallBack: LocationCallback) {

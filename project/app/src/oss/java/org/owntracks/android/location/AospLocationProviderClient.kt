@@ -1,5 +1,6 @@
 package org.owntracks.android.location
 
+import android.app.PendingIntent
 import android.content.Context
 import android.location.Location
 import android.location.LocationListener
@@ -95,6 +96,31 @@ class AospLocationProviderClient(val context: Context) : LocationProviderClient(
                 looper)
           }
     }
+  }
+
+  @RequiresPermission(
+      anyOf =
+          ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"])
+  override fun requestLocationUpdates(
+      locationRequest: LocationRequest,
+      pendingIntent: PendingIntent
+  ) {
+    locationManager?.run {
+      locationSourcesForPriority(locationRequest.priority)
+          .apply { Timber.d("Requesting wake-up location updates by PendingIntent for $this") }
+          .forEach {
+            requestLocationUpdates(
+                it.name.lowercase(),
+                locationRequest.interval.toMillis(),
+                locationRequest.smallestDisplacement ?: 10f,
+                pendingIntent)
+          }
+    }
+  }
+
+  override fun removeLocationUpdates(pendingIntent: PendingIntent) {
+    Timber.d("Removing wake-up location updates")
+    locationManager?.removeUpdates(pendingIntent)
   }
 
   override fun removeLocationUpdates(clientCallBack: LocationCallback) {

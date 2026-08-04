@@ -90,6 +90,23 @@ constructor(
     Timber.i("Scheduled $ONETIME_TASK_ACTIVITY_CHANGE to deliver ${ordinals.size} change(s)")
   }
 
+  /**
+   * Brings the background service up when a location wake-up could not start it directly, because
+   * Android refused the foreground service start (see [ServiceStarter]).
+   *
+   * Enqueued as unique work with [ExistingWorkPolicy.KEEP]: wake-ups arrive on the location
+   * interval, so a queued start that hasn't run yet already does everything a second one would.
+   */
+  fun scheduleServiceStart() {
+    workManager.enqueueUniqueWork(
+        ONETIME_TASK_START_SERVICE,
+        ExistingWorkPolicy.KEEP,
+        OneTimeWorkRequest.Builder(StartBackgroundServiceWorker::class.java)
+            .addTag(ONETIME_TASK_START_SERVICE)
+            .build())
+    Timber.i("Scheduled $ONETIME_TASK_START_SERVICE to bring the background service up")
+  }
+
   /** Cancels all WorkManager tasks. Called on app exit */
   fun cancelAllTasks() {
     Timber.d("Cancelling task tag (all mqtt tasks) $ONETIME_TASK_MQTT_RECONNECT")
@@ -183,6 +200,7 @@ constructor(
     private const val PERIODIC_TASK_SEND_LOCATION_PING = "PERIODIC_TASK_SEND_LOCATION_PING"
     private const val ONETIME_TASK_MQTT_RECONNECT = "ONETIME_TASK_MQTT_RECONNECT"
     private const val ONETIME_TASK_ACTIVITY_CHANGE = "ONETIME_TASK_ACTIVITY_CHANGE"
+    private const val ONETIME_TASK_START_SERVICE = "ONETIME_TASK_START_SERVICE"
     private const val PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG =
         "PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG"
 

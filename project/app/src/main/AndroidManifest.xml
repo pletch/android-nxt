@@ -202,6 +202,11 @@
         </receiver>
 
         <receiver
+            android:name=".support.receiver.LocationWakeupReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <receiver
             android:name=".support.receiver.StartBackgroundServiceReceiver"
             android:enabled="false"
             android:exported="true">

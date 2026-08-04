@@ -1,5 +1,6 @@
 package org.owntracks.android.testutils.di
 
+import android.app.PendingIntent
 import android.location.Location
 import android.os.Build
 import android.os.Looper
@@ -43,6 +44,18 @@ class MockLocationProviderClient : LocationProviderClient() {
 
   override fun removeLocationUpdates(clientCallBack: LocationCallback) {
     callbacks.remove(clientCallBack)
+  }
+
+  // The wake-up registration exists to survive process death, which the tests don't exercise.
+  override fun requestLocationUpdates(
+      locationRequest: LocationRequest,
+      pendingIntent: PendingIntent
+  ) {
+    // No-op
+  }
+
+  override fun removeLocationUpdates(pendingIntent: PendingIntent) {
+    // No-op
   }
 
   override fun flushLocations() {
