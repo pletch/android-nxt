@@ -14,7 +14,7 @@ data class EffectiveLocatorSettings(
 )
 
 /** Coverage floor (metres) for the driving boost, so a stationary vehicle stops emitting points. */
-const val DRIVING_BOOST_DISPLACEMENT_METRES = 50
+const val DRIVING_BOOST_DISPLACEMENT_METRES = 35
 
 /**
  * Computes the effective locator settings without mutating any stored preference. While boosting

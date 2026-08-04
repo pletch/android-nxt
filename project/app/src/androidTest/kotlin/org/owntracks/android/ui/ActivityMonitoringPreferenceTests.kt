@@ -47,7 +47,7 @@ class ActivityMonitoringPreferenceTests : TestWithAnActivity<PreferencesActivity
     clickOn(R.string.preferencesAutoMonitoringByActivity)
 
     // The tuning preferences depend on the toggle, so they're only editable once it's enabled.
-    writeToPreference(R.string.preferencesActivityOnFootLocatorInterval, "20")
+    writeToPreference(R.string.preferencesActivityOnFootLocatorInterval, "18")
     writeToPreference(R.string.preferencesActivityOnFootLocatorDisplacement, "15")
     writeToPreference(R.string.preferencesActivityRevertDelay, "90")
 
@@ -55,7 +55,7 @@ class ActivityMonitoringPreferenceTests : TestWithAnActivity<PreferencesActivity
     clickOn(R.string.configurationManagement)
 
     assertContains(R.id.effectiveConfiguration, "\"autoMonitoringByActivity\": true")
-    assertContains(R.id.effectiveConfiguration, "\"activityOnFootLocatorInterval\": 20")
+    assertContains(R.id.effectiveConfiguration, "\"activityOnFootLocatorInterval\": 18")
     assertContains(R.id.effectiveConfiguration, "\"activityOnFootLocatorDisplacement\": 15")
     assertContains(R.id.effectiveConfiguration, "\"activityRevertDelaySeconds\": 90")
   }

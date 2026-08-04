@@ -11,12 +11,14 @@ package org.owntracks.android.services
  */
 object DrivingSpeedTier {
   // (exclusive upper speed bound in km/h) to (sampling interval in seconds), ascending by speed.
+  // Intervals must stay distinct: intervalSecondsForSpeed recovers the current band by matching on
+  // the interval value, so a duplicate would resolve to the wrong band and break the hysteresis.
   private val BANDS =
       listOf(
-          30 to 7, // city / traffic: tight, capture turns
-          70 to 12, // arterial roads
-          110 to 16, // highway
-          Int.MAX_VALUE to 20) // motorway: coarse, let the GPS sleep between fixes
+          30 to 6, // city / traffic: tight, capture turns
+          70 to 9, // arterial roads
+          110 to 12, // highway
+          Int.MAX_VALUE to 16) // motorway: coarse, let the GPS sleep between fixes
 
   private const val HYSTERESIS_KMH = 8
 
