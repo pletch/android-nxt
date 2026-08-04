@@ -10,7 +10,7 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetClass="org.owntracks.android.ui.status.logs.LogViewerActivity"
-            android:targetPackage="org.owntracks.android" />
+            android:targetPackage="@string/shortcut_target_package" />
     </shortcut>
     <shortcut
         android:enabled="true"
@@ -21,6 +21,6 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetClass="org.owntracks.android.ui.preferences.PreferencesActivity"
-            android:targetPackage="org.owntracks.android" />
+            android:targetPackage="@string/shortcut_target_package" />
     </shortcut>
 </shortcuts>
