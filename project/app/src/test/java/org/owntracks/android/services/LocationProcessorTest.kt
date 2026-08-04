@@ -147,11 +147,11 @@ class LocationProcessorTest {
 
   @Test
   fun `a walking-scale spike is withheld while the on-foot boost is active`() {
-    // 190m in 25s = 27.4 km/h: plausible against the teleport ceiling, not against 15 km/h.
+    // 190m in 25s = 27.4 km/h: plausible against the teleport ceiling, not against 19 km/h.
     assertEquals(
         JumpGateDecision.WITHHOLD,
         evaluateJumpGate(
-            190f, 25.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            190f, 25.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
             onFootMinJumpMetres = 100f))
   }
 
@@ -170,7 +170,7 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.PUBLISH,
         evaluateJumpGate(
-            88f, 28.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            88f, 28.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
             onFootMinJumpMetres = 100f))
   }
 
@@ -181,7 +181,7 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.PUBLISH,
         evaluateJumpGate(
-            40f, 3.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            40f, 3.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
             onFootMinJumpMetres = 100f))
   }
 
@@ -193,7 +193,7 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.PUBLISH,
         evaluateJumpGate(
-            500f, 240.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            500f, 240.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
             onFootMinJumpMetres = 100f))
   }
 
@@ -204,7 +204,7 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.WITHHOLD,
         evaluateJumpGate(
-            190f, 25.0, 150f, 25.0, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            190f, 25.0, 150f, 25.0, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
             onFootMinJumpMetres = 100f))
   }
 
@@ -215,7 +215,7 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.PUBLISH_CORROBORATED,
         evaluateJumpGate(
-            190f, 25.0, 30f, 25.0, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            190f, 25.0, 30f, 25.0, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
             onFootMinJumpMetres = 100f))
   }
 
@@ -224,7 +224,7 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.WITHHOLD,
         evaluateJumpGate(
-            190f, 25.0, null, null, maxSpeedKmh = 0, onFootMaxSpeedKmh = 15,
+            190f, 25.0, null, null, maxSpeedKmh = 0, onFootMaxSpeedKmh = 19,
             onFootMinJumpMetres = 100f))
   }
 

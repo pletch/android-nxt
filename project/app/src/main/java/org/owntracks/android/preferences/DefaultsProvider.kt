@@ -17,7 +17,9 @@ interface DefaultsProvider {
     return when (property) {
       Preferences::activityOnFootLocatorDisplacement -> 20
       Preferences::activityOnFootLocatorInterval -> 20
-      Preferences::activityOnFootMaxImplausibleSpeedKmh -> 15
+      // Above a fast run: ON_FOOT covers RUNNING as well as WALKING, so a threshold sized for
+      // walking pace would withhold genuine fixes from anyone actually running.
+      Preferences::activityOnFootMaxImplausibleSpeedKmh -> 19
       Preferences::activityOnFootMinImplausibleJumpMetres -> 100
       Preferences::activityEntryDelaySeconds -> 0
       Preferences::activityRevertDelaySeconds -> 180
