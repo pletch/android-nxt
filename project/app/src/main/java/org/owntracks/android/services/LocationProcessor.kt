@@ -246,6 +246,14 @@ constructor(
       location: Location
   ): Result<Unit> {
     Timber.v("Maybe publishing $location with trigger $trigger")
+    // A non-finite coordinate can't be serialised — `lat`/`lon` are the only Doubles on the wire,
+    // and kotlinx.serialization throws on NaN/Infinity — so letting one reach the outbound queue
+    // takes the whole process down from a background coroutine. Drop it here instead, before it
+    // can also become the anchor the jump gate measures subsequent fixes against.
+    if (!location.latitude.isFinite() || !location.longitude.isFinite()) {
+      Timber.e("Refusing to publish a location with non-finite coordinates: $location")
+      return Result.failure(Exception("location has non-finite coordinates"))
+    }
     if (!locationIsWithAccuracyThreshold(location))
         return Result.failure(Exception("location accuracy too low"))
 

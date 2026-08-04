@@ -87,6 +87,50 @@ class LocationKalmanFilterTest {
   }
 
   @Test
+  fun `a fix redelivered with the same timestamp does not poison the estimate`() {
+    val filter = LocationKalmanFilter()
+    filter.filter(fix(51.0, 0.1, accuracy = 10f, timeMillis = 1000))
+
+    // The provider re-emits its cached last fix (same timestamp, position moved by the previous
+    // blend). A zero interval must not divide the implied displacement.
+    val duplicate = filter.filter(fix(51.0005, 0.1, accuracy = 10f, timeMillis = 1000))
+    assertTrue("duplicate-timestamp fix produced $duplicate", duplicate.latitude.isFinite())
+    assertTrue("duplicate-timestamp fix produced $duplicate", duplicate.longitude.isFinite())
+    assertTrue("duplicate-timestamp fix produced $duplicate", duplicate.accuracyMetres.isFinite())
+
+    // ...and the filter still tracks normally afterwards, rather than being stuck.
+    val next = filter.filter(fix(51.001, 0.1, accuracy = 10f, timeMillis = 2000))
+    assertTrue("filter stopped tracking after a duplicate timestamp: $next", next.latitude > 51.0)
+    assertTrue(next.latitude.isFinite())
+  }
+
+  @Test
+  fun `identical consecutive fixes stay finite`() {
+    val filter = LocationKalmanFilter()
+    // Same position *and* same timestamp: distance 0 over interval 0 is the other route to NaN.
+    filter.filter(fix(51.0, 0.1, accuracy = 10f, timeMillis = 1000))
+    repeat(5) {
+      val out = filter.filter(fix(51.0, 0.1, accuracy = 10f, timeMillis = 1000))
+      assertTrue("identical fix produced $out", out.latitude.isFinite())
+      assertEquals(51.0, out.latitude, 1e-9)
+    }
+  }
+
+  @Test
+  fun `a non-finite fix is handed back without corrupting the running estimate`() {
+    val filter = LocationKalmanFilter()
+    filter.filter(fix(51.0, 0.1, accuracy = 10f, timeMillis = 0))
+
+    val garbage = filter.filter(fix(Double.NaN, Double.NaN, accuracy = 10f, timeMillis = 1000))
+    assertTrue("expected the bad fix back unchanged", garbage.latitude.isNaN())
+
+    // The very next good fix must be filtered normally — one bad reading can't wedge the filter.
+    val recovered = filter.filter(fix(51.0001, 0.1, accuracy = 10f, timeMillis = 2000))
+    assertTrue("filter did not recover: $recovered", recovered.latitude.isFinite())
+    assertTrue("filter did not recover: $recovered", recovered.latitude in 51.0..51.0001)
+  }
+
+  @Test
   fun `tracks movement without excessive lag even when fixes carry no speed reading`() {
     val filter = LocationKalmanFilter()
     // Network fixes report speed=0. Driving north at ~30 m/s, one fix per 15s: the fix-implied

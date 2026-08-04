@@ -52,28 +52,49 @@ class LocationKalmanFilter(
 
   /** Filters [fix], returning the smoothed position and the filter's own confidence in it. */
   fun filter(fix: KalmanFix): SmoothedPosition {
+    // Garbage in: hand the fix straight back for the caller's own validity checks to reject,
+    // rather than storing it and poisoning every subsequent estimate.
+    if (!fix.latitude.isFinite() || !fix.longitude.isFinite()) {
+      return SmoothedPosition(fix.latitude, fix.longitude, fix.accuracyMetres)
+    }
+
     val measurementVariance = accuracyVariance(fix.accuracyMetres)
     val dtSeconds = (fix.timestampMillis - lastTimestampMillis) / 1000.0
 
-    if (variance < 0 || dtSeconds < 0 || dtSeconds > maxGapSecondsBeforeReset) {
+    // A non-finite running state must reset rather than persist: every comparison against NaN is
+    // false, so a NaN that reached `variance` would make the `variance < 0` test below unable to
+    // ever fire again, and the filter would return NaN for the life of the process.
+    if (!variance.isFinite() ||
+        variance < 0 ||
+        !latitude.isFinite() ||
+        !longitude.isFinite() ||
+        dtSeconds < 0 ||
+        dtSeconds > maxGapSecondsBeforeReset) {
       reset(fix, measurementVariance)
       return SmoothedPosition(fix.latitude, fix.longitude, fix.accuracyMetres)
     }
 
-    // The estimate could have moved by at least the fix's reported speed since the last update.
-    // Fixes without a speed reading (network fixes report 0) would otherwise collapse the noise
-    // to the floor and make the filter lag far behind genuine movement, so the displacement the
-    // fix itself implies also raises the noise — sustained motion then never trails by more than
-    // one blend step, while stationary jitter (small displacement over the fix interval) still
-    // gets smoothed. The floor keeps a momentarily-zero reading from freezing the filter.
-    val impliedSpeedMetresPerSecond =
-        approximateDistanceMetres(latitude, longitude, fix.latitude, fix.longitude) / dtSeconds
-    val processNoiseMetresPerSecond =
-        maxOf(
-            fix.speedMetresPerSecond.toDouble(),
-            impliedSpeedMetresPerSecond,
-            minProcessNoiseMetresPerSecond)
-    variance += dtSeconds * processNoiseMetresPerSecond.pow(2)
+    // Two fixes stamped the same millisecond (typically the provider redelivering its cached last
+    // fix after the location request is re-issued) accrue no process noise, and dividing the
+    // implied displacement by a zero interval would yield Inf — and then `0 * Inf` = NaN, which is
+    // exactly the state the reset above exists to keep out. No time passed, so there is nothing to
+    // grow: go straight to the measurement update.
+    if (dtSeconds > 0) {
+      // The estimate could have moved by at least the fix's reported speed since the last update.
+      // Fixes without a speed reading (network fixes report 0) would otherwise collapse the noise
+      // to the floor and make the filter lag far behind genuine movement, so the displacement the
+      // fix itself implies also raises the noise — sustained motion then never trails by more than
+      // one blend step, while stationary jitter (small displacement over the fix interval) still
+      // gets smoothed. The floor keeps a momentarily-zero reading from freezing the filter.
+      val impliedSpeedMetresPerSecond =
+          approximateDistanceMetres(latitude, longitude, fix.latitude, fix.longitude) / dtSeconds
+      val processNoiseMetresPerSecond =
+          maxOf(
+              fix.speedMetresPerSecond.toDouble(),
+              impliedSpeedMetresPerSecond,
+              minProcessNoiseMetresPerSecond)
+      variance += dtSeconds * processNoiseMetresPerSecond.pow(2)
+    }
 
     val gain = variance / (variance + measurementVariance)
     latitude += gain * (fix.latitude - latitude)
