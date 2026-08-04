@@ -144,6 +144,13 @@ constructor(
    *   A plausible fix that still jumped more than [QUARANTINE_DISTANCE_METRES] is therefore
    *   withheld until the next fix corroborates it: a genuine relocation costs one fix of latency,
    *   a bounce never reaches the wire.
+   *
+   * While the on-foot boost is active a second, much tighter speed threshold
+   * ([Preferences.activityOnFootMaxImplausibleSpeedKmh]) also applies, but only to jumps of at
+   * least [Preferences.activityOnFootMinImplausibleJumpMetres]. The always-on ceiling is sized for
+   * teleports and can't see a walking-scale artifact — a 200m hop between fixes 25s apart implies
+   * only ~29 km/h — while these fixes report good accuracy, so the accuracy gate can't see them
+   * either.
    */
   private fun shouldPublishLocation(
       location: Location,
@@ -152,13 +159,22 @@ constructor(
     if (reportType != MessageLocation.ReportType.DEFAULT) return true
     val last = locationRepo.currentPublishedLocation.value ?: return true
     val withheld = lastWithheldLocation
+    // The tight threshold is scoped to the on-foot boost: it's calibrated to walking, so applying
+    // it while driving would reject every genuine fix. The driving profile clears
+    // locatorBoostedByActivity, so an AR misclassification costs at most the couple of fixes the
+    // GPS-speed backup needs to switch profiles (see BackgroundService.onDrivingLocationForTuning).
+    val onFootMaxSpeedKmh =
+        if (preferences.locatorBoostedByActivity) preferences.activityOnFootMaxImplausibleSpeedKmh
+        else 0
     val decision =
         evaluateJumpGate(
             distanceToAnchorMetres = last.distanceTo(location),
             dtToAnchorSeconds = (location.time - last.time) / 1000.0,
             distanceToWithheldMetres = withheld?.distanceTo(location),
             dtToWithheldSeconds = withheld?.let { (location.time - it.time) / 1000.0 },
-            maxSpeedKmh = preferences.maxImplausibleSpeedKmh)
+            maxSpeedKmh = preferences.maxImplausibleSpeedKmh,
+            onFootMaxSpeedKmh = onFootMaxSpeedKmh,
+            onFootMinJumpMetres = preferences.activityOnFootMinImplausibleJumpMetres.toFloat())
     return when (decision) {
       JumpGateDecision.PUBLISH -> {
         lastWithheldLocation = null
@@ -496,6 +512,35 @@ internal fun isPlausibleSpeed(distanceMetres: Float, dtSeconds: Double, maxSpeed
 // between-fix movement never pays the one-fix corroboration latency.
 internal const val QUARANTINE_DISTANCE_METRES = 5_000f
 
+// Fallback displacement floor for the on-foot threshold, used when no preference value is supplied
+// (the real value is Preferences.activityOnFootMinImplausibleJumpMetres).
+internal const val ON_FOOT_MIN_JUMP_METRES_DEFAULT = 100f
+
+/**
+ * Whether a jump is implausible under either the always-on ceiling ([maxSpeedKmh], sized for
+ * teleports) or the tighter on-foot threshold ([onFootMaxSpeedKmh], 0 when the on-foot boost isn't
+ * active).
+ *
+ * The on-foot threshold only applies to jumps of at least [onFootMinJumpMetres]. Walking-scale
+ * artifacts are a couple of hundred metres, but ordinary GNSS scatter is tens of metres, and with
+ * a short dt that scatter implies a high speed all by itself — so without a displacement floor the
+ * tight threshold would reject good fixes whenever two of them arrived close together. The floor
+ * is also what keeps a long publish gap safe: legitimate movement across a Doze gap is large but
+ * slow, so it clears the floor and passes on speed.
+ */
+private fun jumpIsImplausible(
+    distanceMetres: Float,
+    dtSeconds: Double,
+    maxSpeedKmh: Int,
+    onFootMaxSpeedKmh: Int,
+    onFootMinJumpMetres: Float
+): Boolean {
+  if (!isPlausibleSpeed(distanceMetres, dtSeconds, maxSpeedKmh)) return true
+  return onFootMaxSpeedKmh > 0 &&
+      distanceMetres >= onFootMinJumpMetres &&
+      !isPlausibleSpeed(distanceMetres, dtSeconds, onFootMaxSpeedKmh)
+}
+
 // Floor between on-demand corroboration fix requests. Generous enough for GPS acquisition plus
 // slack; a genuine relocation resolves on the first request, so a repeat inside this window only
 // happens in a flapping/GPS-denied environment where more requests wouldn't help anyway.
@@ -510,25 +555,41 @@ internal enum class JumpGateDecision {
 /**
  * Pure decision core of [LocationProcessor]'s jump gate (see [shouldPublishLocation] for the
  * rationale). [distanceToWithheldMetres]/[dtToWithheldSeconds] describe the previously withheld
- * fix, if any. [maxSpeedKmh] <= 0 disables the gate.
+ * fix, if any. [onFootMaxSpeedKmh] is the tighter walking-scale threshold, passed as 0 unless the
+ * on-foot boost is active; the gate is off entirely when both thresholds are <= 0.
+ *
+ * Corroboration is judged against the same combined test, so while on foot a second bad fix
+ * landing near the first can't confirm it: genuine walking between two consecutive fixes stays
+ * well under the displacement floor and passes regardless.
  */
 internal fun evaluateJumpGate(
     distanceToAnchorMetres: Float,
     dtToAnchorSeconds: Double,
     distanceToWithheldMetres: Float?,
     dtToWithheldSeconds: Double?,
-    maxSpeedKmh: Int
+    maxSpeedKmh: Int,
+    onFootMaxSpeedKmh: Int = 0,
+    onFootMinJumpMetres: Float = ON_FOOT_MIN_JUMP_METRES_DEFAULT
 ): JumpGateDecision {
-  if (maxSpeedKmh <= 0) return JumpGateDecision.PUBLISH
-  if (isPlausibleSpeed(distanceToAnchorMetres, dtToAnchorSeconds, maxSpeedKmh) &&
-      distanceToAnchorMetres < QUARANTINE_DISTANCE_METRES) {
+  if (maxSpeedKmh <= 0 && onFootMaxSpeedKmh <= 0) return JumpGateDecision.PUBLISH
+  if (!jumpIsImplausible(
+      distanceToAnchorMetres,
+      dtToAnchorSeconds,
+      maxSpeedKmh,
+      onFootMaxSpeedKmh,
+      onFootMinJumpMetres) && distanceToAnchorMetres < QUARANTINE_DISTANCE_METRES) {
     return JumpGateDecision.PUBLISH
   }
   // Implausible jump, or plausible only thanks to a long gap: believe it once two consecutive
   // fixes agree with each other.
   if (distanceToWithheldMetres != null &&
       dtToWithheldSeconds != null &&
-      isPlausibleSpeed(distanceToWithheldMetres, dtToWithheldSeconds, maxSpeedKmh)) {
+      !jumpIsImplausible(
+          distanceToWithheldMetres,
+          dtToWithheldSeconds,
+          maxSpeedKmh,
+          onFootMaxSpeedKmh,
+          onFootMinJumpMetres)) {
     return JumpGateDecision.PUBLISH_CORROBORATED
   }
   return JumpGateDecision.WITHHOLD

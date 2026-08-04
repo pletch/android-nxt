@@ -103,6 +103,8 @@ class AdvancedFragment @Inject constructor() :
     listOf(
             Preferences::activityOnFootLocatorInterval.name,
             Preferences::activityOnFootLocatorDisplacement.name,
+            Preferences::activityOnFootMaxImplausibleSpeedKmh.name,
+            Preferences::activityOnFootMinImplausibleJumpMetres.name,
             Preferences::activityRevertDelaySeconds.name,
         )
         .forEach { findPreference<Preference>(it)?.isVisible = activityRecognitionAvailable }

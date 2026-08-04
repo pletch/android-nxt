@@ -227,6 +227,16 @@ constructor(
 
   @Preference var activityOnFootLocatorInterval: Int by preferencesStore
 
+  // Walking-scale plausibility gate, applied only while the on-foot boost is active (see the jump
+  // gate in LocationProcessor). maxImplausibleSpeedKmh is sized for teleports and can't see a
+  // 200m artifact between fixes seconds apart, and those fixes report good accuracy so
+  // ignoreInaccurateLocations can't either. 0 disables the tightening.
+  @Preference var activityOnFootMaxImplausibleSpeedKmh: Int by preferencesStore
+
+  // Displacement floor for the above: jumps smaller than this are never judged against the tight
+  // threshold, so ordinary GNSS scatter between closely-spaced fixes can't trip it.
+  @Preference var activityOnFootMinImplausibleJumpMetres: Int by preferencesStore
+
   // Seconds you must stay active before the boost engages (entry dwell; 0 = immediate). Filters
   // brief Activity Recognition bursts so they don't flap the locator.
   @Preference var activityEntryDelaySeconds: Int by preferencesStore

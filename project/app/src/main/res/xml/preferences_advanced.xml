@@ -80,6 +80,24 @@
             android:digits="0123456789"
             android:inputType="number"
             app:dependency="autoMonitoringByActivity"
+            app:dialogMessage="@string/preferencesActivityOnFootMaxImplausibleSpeedDialog"
+            app:iconSpaceReserved="false"
+            app:key="activityOnFootMaxImplausibleSpeedKmh"
+            app:summary="@string/preferencesActivityOnFootMaxImplausibleSpeedSummary"
+            app:title="@string/preferencesActivityOnFootMaxImplausibleSpeed" />
+        <org.owntracks.android.support.widgets.EditIntegerPreference
+            android:digits="0123456789"
+            android:inputType="number"
+            app:dependency="autoMonitoringByActivity"
+            app:dialogMessage="@string/preferencesActivityOnFootMinImplausibleJumpDialog"
+            app:iconSpaceReserved="false"
+            app:key="activityOnFootMinImplausibleJumpMetres"
+            app:summary="@string/preferencesActivityOnFootMinImplausibleJumpSummary"
+            app:title="@string/preferencesActivityOnFootMinImplausibleJump" />
+        <org.owntracks.android.support.widgets.EditIntegerPreference
+            android:digits="0123456789"
+            android:inputType="number"
+            app:dependency="autoMonitoringByActivity"
             app:dialogMessage="@string/preferencesActivityEntryDelayDialog"
             app:iconSpaceReserved="false"
             app:key="activityEntryDelaySeconds"

@@ -141,6 +141,93 @@ class LocationProcessorTest {
         evaluateJumpGate(50_000f, 5.0, null, null, maxSpeedKmh = 0))
   }
 
+  // On-foot tightening. Values below are taken from a real walk that produced ~190m spikes
+  // between fixes 25s apart, which the 1000 km/h ceiling cannot see (~29 km/h implied) and which
+  // reported better-than-median accuracy, so the accuracy gate could not see them either.
+
+  @Test
+  fun `a walking-scale spike is withheld while the on-foot boost is active`() {
+    // 190m in 25s = 27.4 km/h: plausible against the teleport ceiling, not against 15 km/h.
+    assertEquals(
+        JumpGateDecision.WITHHOLD,
+        evaluateJumpGate(
+            190f, 25.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            onFootMinJumpMetres = 100f))
+  }
+
+  @Test
+  fun `the same spike publishes when the on-foot boost is not active`() {
+    // Driving, or any non-boosted mode: onFootMaxSpeedKmh is passed as 0 and nothing changes.
+    assertEquals(
+        JumpGateDecision.PUBLISH,
+        evaluateJumpGate(190f, 25.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 0))
+  }
+
+  @Test
+  fun `ordinary walking is unaffected by the tight threshold`() {
+    // The largest genuine segment observed on that walk: 88m in 28s = 11.3 km/h, and under the
+    // displacement floor regardless.
+    assertEquals(
+        JumpGateDecision.PUBLISH,
+        evaluateJumpGate(
+            88f, 28.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            onFootMinJumpMetres = 100f))
+  }
+
+  @Test
+  fun `GPS scatter between closely spaced fixes cannot trip the tight threshold`() {
+    // 40m in 3s implies 48 km/h, but it's under the floor: a corroboration fix arriving seconds
+    // after the last one must not be rejected for ordinary jitter.
+    assertEquals(
+        JumpGateDecision.PUBLISH,
+        evaluateJumpGate(
+            40f, 3.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            onFootMinJumpMetres = 100f))
+  }
+
+  @Test
+  fun `a long publish gap stays safe under the tight threshold`() {
+    // The Doze case: 500m of real movement across a 4 minute gap implies 7.5 km/h. It clears the
+    // floor, so it is judged — and passes on speed, which is exactly why the floor alone isn't
+    // the whole gate.
+    assertEquals(
+        JumpGateDecision.PUBLISH,
+        evaluateJumpGate(
+            500f, 240.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            onFootMinJumpMetres = 100f))
+  }
+
+  @Test
+  fun `a second bad fix near the first cannot corroborate it while on foot`() {
+    // Both fixes are out at the spike: 190m from the anchor, and 150m in 25s from the withheld
+    // one. Under the loose ceiling that pair would corroborate; the tight threshold refuses.
+    assertEquals(
+        JumpGateDecision.WITHHOLD,
+        evaluateJumpGate(
+            190f, 25.0, 150f, 25.0, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            onFootMinJumpMetres = 100f))
+  }
+
+  @Test
+  fun `a genuine on-foot relocation still corroborates`() {
+    // The anchor turned out to be the bad fix: the new fix is far from it but only 30m in 25s
+    // from the previously withheld one, i.e. walking pace. Believe the pair.
+    assertEquals(
+        JumpGateDecision.PUBLISH_CORROBORATED,
+        evaluateJumpGate(
+            190f, 25.0, 30f, 25.0, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 15,
+            onFootMinJumpMetres = 100f))
+  }
+
+  @Test
+  fun `the tight threshold works with the teleport ceiling disabled`() {
+    assertEquals(
+        JumpGateDecision.WITHHOLD,
+        evaluateJumpGate(
+            190f, 25.0, null, null, maxSpeedKmh = 0, onFootMaxSpeedKmh = 15,
+            onFootMinJumpMetres = 100f))
+  }
+
   /** Regression test for https://github.com/owntracks/android/issues/2034 review follow-up. */
   @Test
   fun `RESPONSE trigger is not dropped by the implausible speed filter`() = runTest {

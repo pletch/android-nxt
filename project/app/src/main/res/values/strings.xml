@@ -163,6 +163,12 @@ To allow this, please enable Location in the device settings."</string>
     <string name="preferencesActivityOnFootLocatorDisplacement">"On-foot displacement"</string>
     <string name="preferencesActivityOnFootLocatorDisplacementDialog">"Minimum distance moved between locations while walking or running (metres)"</string>
     <string name="preferencesActivityOnFootLocatorDisplacementSummary">"Minimum distance between locations while on foot"</string>
+    <string name="preferencesActivityOnFootMaxImplausibleSpeed">"On-foot implausible speed"</string>
+    <string name="preferencesActivityOnFootMaxImplausibleSpeedDialog">"Speed (km/h) above which a location jump while on foot is treated as a bad fix. 0 disables the check"</string>
+    <string name="preferencesActivityOnFootMaxImplausibleSpeedSummary">"Reject on-foot jumps faster than this"</string>
+    <string name="preferencesActivityOnFootMinImplausibleJump">"On-foot minimum jump"</string>
+    <string name="preferencesActivityOnFootMinImplausibleJumpDialog">"Jumps shorter than this distance (metres) are never rejected, so ordinary GPS scatter isn\'t mistaken for a bad fix"</string>
+    <string name="preferencesActivityOnFootMinImplausibleJumpSummary">"Smallest jump the on-foot check will reject"</string>
     <string name="preferencesActivityOnFootLocatorInterval">"On-foot location interval"</string>
     <string name="preferencesActivityOnFootLocatorIntervalDialog">"How often locations are requested while walking or running (seconds)"</string>
     <string name="preferencesActivityOnFootLocatorIntervalSummary">"Location interval while on foot"</string>

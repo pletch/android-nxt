@@ -17,6 +17,8 @@ interface DefaultsProvider {
     return when (property) {
       Preferences::activityOnFootLocatorDisplacement -> 20
       Preferences::activityOnFootLocatorInterval -> 20
+      Preferences::activityOnFootMaxImplausibleSpeedKmh -> 15
+      Preferences::activityOnFootMinImplausibleJumpMetres -> 100
       Preferences::activityEntryDelaySeconds -> 0
       Preferences::activityRevertDelaySeconds -> 180
       Preferences::autoMonitoringByActivity -> false
