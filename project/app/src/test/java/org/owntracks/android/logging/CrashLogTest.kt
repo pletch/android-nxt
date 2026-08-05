@@ -104,6 +104,70 @@ class CrashLogTest {
   }
 
   @Test
+  fun `a system exit report carries the trace the system kept`() {
+    crashLog.recordSystemExit(
+        at = 1000,
+        description = "user request after error: Input dispatching timed out",
+        reason = 6,
+        status = 0,
+        trace = "main (state=BLOCKED)\n  at org.owntracks.android.Boom.hang".byteInputStream())
+
+    val report = crashLog.pending().single().readText()
+    assertTrue(report, report.contains("Input dispatching timed out"))
+    assertTrue(report, report.contains("main (state=BLOCKED)"))
+  }
+
+  @Test
+  fun `a system exit with no retained trace still produces a report`() {
+    crashLog.recordSystemExit(at = 1000, description = "native crash", reason = 5, status = 0, trace = null)
+
+    assertTrue(crashLog.pending().single().readText().contains("(no trace retained by the system)"))
+  }
+
+  /** An ANR dumps every thread; the whole thing would swamp the export it's attached to. */
+  @Test
+  fun `an oversized trace is truncated`() {
+    val trace = "x".repeat(CrashLog.MAX_TRACE_CHARS * 2)
+
+    crashLog.recordSystemExit(1000, "anr", 6, 0, trace.byteInputStream())
+
+    val report = crashLog.pending().single().readText()
+    assertTrue(report.contains("(trace truncated at ${CrashLog.MAX_TRACE_CHARS} characters)"))
+    assertTrue(report.length < trace.length)
+  }
+
+  @Test
+  fun `a trace that exactly fills the cap is not marked truncated`() {
+    val trace = "x".repeat(CrashLog.MAX_TRACE_CHARS)
+
+    crashLog.recordSystemExit(1000, "anr", 6, 0, trace.byteInputStream())
+
+    val report = crashLog.pending().single().readText()
+    assertFalse(report.contains("truncated"))
+    assertTrue(report.contains(trace))
+  }
+
+  /**
+   * The watermark is what stops an old ANR being re-reported on every one of the many background
+   * process starts that can see it, and it has to outlive the reports being acknowledged.
+   */
+  @Test
+  fun `the exit watermark survives acknowledgement`() {
+    crashLog.markExitsImportedUpTo(4000)
+    crashLog.recordSystemExit(4000, "anr", 6, 0, null)
+
+    crashLog.acknowledge()
+
+    assertEquals(4000L, crashLog.lastImportedExitTimestamp())
+    assertEquals(emptyList<File>(), crashLog.pending())
+  }
+
+  @Test
+  fun `the exit watermark starts at zero`() {
+    assertEquals(0L, crashLog.lastImportedExitTimestamp())
+  }
+
+  @Test
   fun `a crash written by an older version is imported`() {
     val legacy = noBackupDir.resolve("crash.log").apply { writeText("Thread: main\nException: old") }
 

@@ -14,6 +14,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.StrictMode
 import androidx.annotation.MainThread
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -177,17 +178,50 @@ open class BaseApp :
             ApplicationExitInfo.REASON_CRASH_NATIVE,
             ApplicationExitInfo.REASON_ANR,
             ApplicationExitInfo.REASON_LOW_MEMORY)
-    (this.getSystemService(ACTIVITY_SERVICE) as ActivityManager)
-        .getHistoricalProcessExitReasons(this.packageName, 0, 10)
+    val exits =
+        (this.getSystemService(ACTIVITY_SERVICE) as ActivityManager)
+            .getHistoricalProcessExitReasons(this.packageName, 0, 10)
+    exits.forEach {
+      val message =
+          "Historical process exited at ${Instant.fromEpochMilliseconds(it.timestamp)}. reason: ${it.description}, status: ${it.status}, reason: ${it.reason}"
+      if (it.reason in abnormalReasons) {
+        Timber.e(message)
+      } else {
+        Timber.i(message)
+      }
+    }
+    importSystemExitTraces(exits)
+  }
+
+  /**
+   * Turns the ANRs and native crashes in [exits] into crash reports, carrying the trace the system
+   * kept for them: neither ever reaches the uncaught exception handler, so this is the only place
+   * their stacks can come from. REASON_CRASH is left out — the handler already recorded that one,
+   * with the exception attached.
+   *
+   * Only exits newer than the stored watermark are imported, and the watermark advances past every
+   * exit seen, so an old ANR isn't re-reported on each of the many process starts that see it.
+   */
+  @RequiresApi(Build.VERSION_CODES.R)
+  private fun importSystemExitTraces(exits: List<ApplicationExitInfo>) {
+    val tracedReasons =
+        setOf(ApplicationExitInfo.REASON_ANR, ApplicationExitInfo.REASON_CRASH_NATIVE)
+    val importedUpTo = crashLog.lastImportedExitTimestamp()
+    exits
+        .filter { it.reason in tracedReasons && it.timestamp > importedUpTo }
+        .sortedBy { it.timestamp }
         .forEach {
-          val message =
-              "Historical process exited at ${Instant.fromEpochMilliseconds(it.timestamp)}. reason: ${it.description}, status: ${it.status}, reason: ${it.reason}"
-          if (it.reason in abnormalReasons) {
-            Timber.e(message)
-          } else {
-            Timber.i(message)
-          }
+          runCatching {
+                crashLog.recordSystemExit(
+                    it.timestamp,
+                    it.description,
+                    it.reason,
+                    it.status,
+                    runCatching { it.traceInputStream }.getOrNull())
+              }
+              .onFailure { failure -> Timber.e(failure, "Unable to record system exit trace") }
         }
+    exits.maxOfOrNull { it.timestamp }?.let { crashLog.markExitsImportedUpTo(it) }
   }
 
   /**

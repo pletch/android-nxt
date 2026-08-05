@@ -2,6 +2,7 @@ package org.owntracks.android.logging
 
 import android.content.Context
 import java.io.File
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -25,9 +26,13 @@ class CrashLog(private val directory: File) {
     /** Enough to show a crash loop's shape without letting a fast loop fill the data dir. */
     internal const val MAX_RETAINED = 5
 
+    /** An ANR dumps every thread in the process; a whole one would swamp the exported log. */
+    internal const val MAX_TRACE_CHARS = 64 * 1024
+
     private const val FILE_PREFIX = "crash-"
     private const val FILE_SUFFIX = ".log"
     private const val LEGACY_FILE_NAME = "crash.log"
+    private const val WATERMARK_FILE_NAME = "last-imported-exit"
 
     private val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT)
 
@@ -54,6 +59,51 @@ class CrashLog(private val directory: File) {
         """
                 .trimMargin())
     prune()
+  }
+
+  /**
+   * Writes a report for a death the uncaught exception handler never saw — an ANR or a native
+   * crash — from the record the system kept. [trace] is the system's own dump (every thread's stack
+   * for an ANR, the tombstone for a native crash); it's read and closed here, truncated at
+   * [MAX_TRACE_CHARS] so that one ANR can't dominate an export.
+   */
+  fun recordSystemExit(
+      at: Long,
+      description: String?,
+      reason: Int,
+      status: Int,
+      trace: InputStream?
+  ) {
+    directory.mkdirs()
+    val traceText =
+        trace?.let { stream -> runCatching { stream.use { readCapped(it) } }.getOrNull() }
+            ?: "(no trace retained by the system)"
+    fileFor(at)
+        .writeText(
+            """
+        |Killed at: ${timestampFormat.format(Date(at))}
+        |Version: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})
+        |System exit: $description (reason $reason, status $status)
+        |Stacktrace:
+        |$traceText
+        """
+                .trimMargin())
+    prune()
+  }
+
+  /**
+   * The timestamp of the newest system exit already turned into a report. Persisted separately from
+   * the reports themselves: [acknowledge] must not make the system's list look new again, or an old
+   * ANR would be re-imported and re-notified on every process start forever.
+   */
+  fun lastImportedExitTimestamp(): Long =
+      runCatching { watermarkFile.readText().trim().toLong() }.getOrDefault(0L)
+
+  fun markExitsImportedUpTo(timestamp: Long) {
+    runCatching {
+      directory.mkdirs()
+      watermarkFile.writeText(timestamp.toString())
+    }
   }
 
   /** Unacknowledged crash reports, oldest first. */
@@ -89,6 +139,30 @@ class CrashLog(private val directory: File) {
     directory.mkdirs()
     if (!legacy.renameTo(fileFor(legacy.lastModified()))) {
       legacy.delete()
+    }
+  }
+
+  /**
+   * The watermark shares the directory with the reports but not their name pattern, so [pending],
+   * [prune] and [acknowledge] leave it alone.
+   */
+  private val watermarkFile: File
+    get() = directory.resolve(WATERMARK_FILE_NAME)
+
+  private fun readCapped(stream: InputStream): String {
+    val buffer = CharArray(MAX_TRACE_CHARS)
+    val reader = stream.bufferedReader()
+    var read = 0
+    while (read < MAX_TRACE_CHARS) {
+      val count = reader.read(buffer, read, MAX_TRACE_CHARS - read)
+      if (count < 0) break
+      read += count
+    }
+    val text = String(buffer, 0, read)
+    return if (read == MAX_TRACE_CHARS && reader.read() >= 0) {
+      "$text\n(trace truncated at $MAX_TRACE_CHARS characters)"
+    } else {
+      text
     }
   }
 
