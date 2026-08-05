@@ -11,12 +11,15 @@ import android.system.ErrnoException
 import android.system.OsConstants
 import android.util.Log
 import java.io.FileOutputStream
+import org.owntracks.android.logging.LogEntry
 import org.owntracks.android.logging.TimberInMemoryLogTree
+import org.owntracks.android.logging.exportedSizeBytes
+import org.owntracks.android.logging.writeEntriesTo
 import timber.log.Timber
 
 class ExportedLogContentProvider : ContentProvider() {
 
-  private fun logForUri(uri: Uri): ByteArray? =
+  private fun logEntriesForUri(uri: Uri): List<LogEntry>? =
       Timber.forest()
           .filterIsInstance<TimberInMemoryLogTree>()
           .firstOrNull()
@@ -28,8 +31,6 @@ class ExportedLogContentProvider : ContentProvider() {
               it.priority >= Log.INFO
             }
           }
-          ?.joinToString("\n") { it.toExportedString() }
-          ?.toByteArray()
 
   override fun insert(uri: Uri, values: ContentValues?): Uri? {
     return null
@@ -42,9 +43,9 @@ class ExportedLogContentProvider : ContentProvider() {
       selectionArgs: Array<out String>?,
       sortOrder: String?
   ): Cursor? =
-      logForUri(uri)?.let {
+      logEntriesForUri(uri)?.let {
         val m = MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), 1)
-        m.addRow(arrayOf<Any>("owntracks-log.txt", it.size.toLong()))
+        m.addRow(arrayOf<Any>("owntracks-log.txt", exportedSizeBytes(it)))
         m
       }
 
@@ -67,10 +68,12 @@ class ExportedLogContentProvider : ContentProvider() {
 
   override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
     if (mode != "r") return null
-    val log = logForUri(uri) ?: return null
-    return openPipeHelper(uri, "text/plain", null, log) { output, _, _, _, l ->
+    val entries = logEntriesForUri(uri) ?: return null
+    return openPipeHelper(uri, "text/plain", null, entries) { output, _, _, _, l ->
       try {
-        FileOutputStream(output.fileDescriptor).write(l!!)
+        // Not closed here: openPipeHelper closes the write end once this returns, and that close
+        // is what signals EOF to the reader.
+        writeEntriesTo(FileOutputStream(output.fileDescriptor), l!!)
       } catch (e: Exception) {
         // EPIPE means the reader closed the pipe after consuming all data — this is normal
         // behaviour (e.g. Google Drive closes its end once the upload is complete). Log at

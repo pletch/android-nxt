@@ -12,7 +12,11 @@ import timber.log.Timber.DebugTree
 class TimberInMemoryLogTree(private val debugBuild: Boolean) : DebugTree() {
   companion object {
     const val LOG_PREFIX = "FARTSHOES"
-    private const val MAX_LOG_ENTRIES = 500
+    // A publish cycle costs ~13 entries, so at a driving locator interval (6-9s) the buffer fills
+    // at ~70 entries/minute: 500 held barely 7 minutes, and a typical commute had already rolled
+    // out of the buffer by the time the log was exported. 5000 covers ~75 minutes of driving for
+    // ~1.5MB of retained heap (~300 bytes/entry, measured).
+    private const val MAX_LOG_ENTRIES = 5000
   }
 
   private val mutableLogFlow =
