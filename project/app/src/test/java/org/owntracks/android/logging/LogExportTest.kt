@@ -17,17 +17,26 @@ class LogExportTest {
           threadName = "backgroundHandlerThread",
           time = Date(1785929165000))
 
-  private fun written(entries: List<LogEntry>): ByteArray =
-      ByteArrayOutputStream().also { writeEntriesTo(it, entries) }.toByteArray()
+  private fun written(entries: List<LogEntry>, preamble: String = ""): ByteArray =
+      ByteArrayOutputStream().also { writeEntriesTo(it, entries, preamble) }.toByteArray()
 
   /**
    * The contract that matters: `query()` reports [exportedSizeBytes] via OpenableColumns.SIZE
    * before a single byte is written, so a reader that trusts it truncates the upload if the two
    * ever disagree.
    */
-  private fun assertSizeMatchesPayload(entries: List<LogEntry>) {
-    assertEquals(written(entries).size.toLong(), exportedSizeBytes(entries))
+  private fun assertSizeMatchesPayload(entries: List<LogEntry>, preamble: String = "") {
+    assertEquals(written(entries, preamble).size.toLong(), exportedSizeBytes(entries, preamble))
   }
+
+  private val crashPreamble =
+      """
+      |=== Crash report crash-1785929165000.log ===
+      |Crashed at: 2026-08-05 09:26:05.000
+      |Thread: main
+      |Exception: java.lang.IllegalStateException: boom
+      """
+          .trimMargin() + "\n"
 
   @Test
   fun `reported size matches the written payload for a typical buffer`() {
@@ -59,6 +68,30 @@ class LogExportTest {
   @Test
   fun `reported size matches the written payload for embedded newlines`() {
     assertSizeMatchesPayload(listOf(entry("line one\nline two\n"), entry("trailing\n")))
+  }
+
+  @Test
+  fun `reported size matches the written payload with a crash preamble`() {
+    assertSizeMatchesPayload(listOf(entry("first"), entry("second")), crashPreamble)
+  }
+
+  @Test
+  fun `reported size matches the written payload for a preamble with no entries`() {
+    assertSizeMatchesPayload(emptyList(), crashPreamble)
+  }
+
+  @Test
+  fun `the preamble leads the export and is separated from the first entry`() {
+    val text = written(listOf(entry("first")), crashPreamble).toString(Charsets.UTF_8)
+    assertEquals("$crashPreamble${LOG_ENTRY_SEPARATOR}${entry("first").toExportedString()}", text)
+  }
+
+  /** An empty preamble must not leave a leading separator on the export. */
+  @Test
+  fun `an empty preamble writes nothing`() {
+    assertEquals(
+        written(listOf(entry("first"))).toString(Charsets.UTF_8),
+        written(listOf(entry("first")), "").toString(Charsets.UTF_8))
   }
 
   @Test

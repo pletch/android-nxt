@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ShareCompat
 import androidx.core.net.toUri
 import androidx.coordinatorlayout.widget.CoordinatorLayout
@@ -28,9 +29,11 @@ import kotlin.random.Random
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import org.owntracks.android.BaseApp
 import org.owntracks.android.BuildConfig
 import org.owntracks.android.R
 import org.owntracks.android.databinding.UiPreferencesLogsBinding
+import org.owntracks.android.logging.CrashLog
 import org.owntracks.android.logging.LogEntry
 import timber.log.Timber
 
@@ -134,6 +137,10 @@ class LogViewerActivity : AppCompatActivity() {
 
   override fun onResume() {
     super.onResume()
+    // The crash notification has done its job once the user is looking at the log. The reports
+    // themselves stay until they're explicitly cleared, so they're still in anything shared here.
+    NotificationManagerCompat.from(this)
+        .cancel(BaseApp.NOTIFICATION_TAG_CRASH, BaseApp.NOTIFICATION_ID_CRASH)
     this.recyclerView?.scrollToPosition(logAdapter.itemCount - 1)
   }
 
@@ -155,6 +162,10 @@ class LogViewerActivity : AppCompatActivity() {
         true
       }
       R.id.clear_log -> {
+        // Clearing the log is the user's acknowledgement of any crash reports: until then they're
+        // kept on disk so that they survive the log buffer rolling over, and are attached to every
+        // export.
+        CrashLog.forContext(this).acknowledge()
         viewModel.clearLog()
         restartLogCollector()
         true

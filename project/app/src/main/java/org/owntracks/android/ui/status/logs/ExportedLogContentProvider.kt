@@ -11,6 +11,7 @@ import android.system.ErrnoException
 import android.system.OsConstants
 import android.util.Log
 import java.io.FileOutputStream
+import org.owntracks.android.logging.CrashLog
 import org.owntracks.android.logging.LogEntry
 import org.owntracks.android.logging.TimberInMemoryLogTree
 import org.owntracks.android.logging.exportedSizeBytes
@@ -36,6 +37,14 @@ class ExportedLogContentProvider : ContentProvider() {
     return null
   }
 
+  /**
+   * Unacknowledged crash reports, prepended to the export. The in-memory buffer holds a crash for
+   * only as long as it takes the locator to roll it out, so the report has to travel with the
+   * export itself rather than relying on the replayed log line still being there.
+   */
+  private fun crashPreamble(): String =
+      context?.let { CrashLog.forContext(it).pendingText()?.plus("\n") }.orEmpty()
+
   override fun query(
       uri: Uri,
       projection: Array<out String>?,
@@ -45,7 +54,7 @@ class ExportedLogContentProvider : ContentProvider() {
   ): Cursor? =
       logEntriesForUri(uri)?.let {
         val m = MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), 1)
-        m.addRow(arrayOf<Any>("owntracks-log.txt", exportedSizeBytes(it)))
+        m.addRow(arrayOf<Any>("owntracks-log.txt", exportedSizeBytes(it, crashPreamble())))
         m
       }
 
@@ -69,11 +78,12 @@ class ExportedLogContentProvider : ContentProvider() {
   override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
     if (mode != "r") return null
     val entries = logEntriesForUri(uri) ?: return null
-    return openPipeHelper(uri, "text/plain", null, entries) { output, _, _, _, l ->
+    val payload = Pair(crashPreamble(), entries)
+    return openPipeHelper(uri, "text/plain", null, payload) { output, _, _, _, l ->
       try {
         // Not closed here: openPipeHelper closes the write end once this returns, and that close
         // is what signals EOF to the reader.
-        writeEntriesTo(FileOutputStream(output.fileDescriptor), l!!)
+        writeEntriesTo(FileOutputStream(output.fileDescriptor), l!!.second, l.first)
       } catch (e: Exception) {
         // EPIPE means the reader closed the pipe after consuming all data — this is normal
         // behaviour (e.g. Google Drive closes its end once the upload is complete). Log at

@@ -44,6 +44,11 @@
     <string name="contactDetailsDistanceUnitKilometres">"km"</string>
     <string name="contactDetailsDistanceUnitMeters">"m"</string>
     <string name="contactDetailsDistanceValue">"%1$,.2f %2$s"</string>
+    <plurals name="crashNotificationText">
+        <item quantity="one">"%1$d crash report. Tap to view and share the diagnostic log."</item>
+        <item quantity="other">"%1$d crash reports. Tap to view and share the diagnostic log."</item>
+    </plurals>
+    <string name="crashNotificationTitle">"OwnTracks crashed"</string>
     <string name="contactDetailsSpeed">"Speed"</string>
     <string name="contactDetailsSpeedValue">"%d kph"</string>
     <string name="unitsSpeedMetric">"%d km/h"</string>
