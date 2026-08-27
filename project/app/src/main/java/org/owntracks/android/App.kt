@@ -43,7 +43,6 @@ import org.owntracks.android.logging.TimberInMemoryLogTree
 import org.owntracks.android.preferences.Preferences
 import org.owntracks.android.preferences.types.AppTheme
 import org.owntracks.android.services.MessageProcessor
-import org.owntracks.android.services.worker.Scheduler
 import org.owntracks.android.support.RunThingsOnOtherThreads
 import org.owntracks.android.support.receiver.StartBackgroundServiceReceiver
 import org.owntracks.android.ui.status.logs.LogViewerActivity
@@ -72,8 +71,6 @@ open class BaseApp :
 
     fun workerFactory(): HiltWorkerFactory
 
-    fun scheduler(): Scheduler
-
     fun bindingComponentProvider(): Provider<CustomBindingComponentBuilder>
 
     fun messageProcessor(): MessageProcessor
@@ -89,10 +86,6 @@ open class BaseApp :
 
   private val workerFactory: HiltWorkerFactory by lazy {
     EarlyEntryPoints.get(this, ApplicationEntrypoint::class.java).workerFactory()
-  }
-
-  private val scheduler: Scheduler by lazy {
-    EarlyEntryPoints.get(this, ApplicationEntrypoint::class.java).scheduler()
   }
 
   private val bindingComponentProvider: Provider<CustomBindingComponentBuilder> by lazy {
@@ -130,7 +123,16 @@ open class BaseApp :
 
     DataBindingUtil.setDefaultComponent(dataBindingEntryPoint)
 
-    scheduler.cancelAllTasks()
+    /*
+    Deliberately does not cancel any scheduled work here. WorkManager starts the process itself to
+    run a job, which means this runs *before* that job does: cancelling here threw away the pending
+    MQTT reconnect, and the periodic connection watchdog along with it, every time the app was woken
+    up to recover a dead connection. Since the watchdog is only re-scheduled when the endpoint is
+    activated, and nothing activates it in a process started for a worker, a single process death
+    was enough to lose it permanently. Stale work is handled where it is scheduled instead: the
+    reconnect and the watchdog are unique work, and the location ping is cancelled by tag before it
+    is re-enqueued.
+     */
     Timber.plant(TimberInMemoryLogTree(BuildConfig.DEBUG))
 
     if (BuildConfig.DEBUG) {
