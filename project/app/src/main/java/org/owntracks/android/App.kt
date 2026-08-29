@@ -42,6 +42,7 @@ import org.owntracks.android.logging.TimberInMemoryLogTree
 import org.owntracks.android.preferences.Preferences
 import org.owntracks.android.preferences.types.AppTheme
 import org.owntracks.android.services.MessageProcessor
+import org.owntracks.android.services.worker.Scheduler
 import org.owntracks.android.support.RunThingsOnOtherThreads
 import org.owntracks.android.support.receiver.StartBackgroundServiceReceiver
 import org.owntracks.android.ui.status.logs.LogViewerActivity
@@ -69,6 +70,13 @@ open class BaseApp :
     fun preferences(): Preferences
 
     fun workerFactory(): HiltWorkerFactory
+
+    /**
+     * Needed by the broadcast receivers that defer work to WorkManager when Android refuses a
+     * foreground service start. They run in a process that may have no Application-level user of
+     * [Scheduler] at all, so the binding has to be reachable from the early entry point.
+     */
+    fun scheduler(): Scheduler
 
     fun bindingComponentProvider(): Provider<CustomBindingComponentBuilder>
 
