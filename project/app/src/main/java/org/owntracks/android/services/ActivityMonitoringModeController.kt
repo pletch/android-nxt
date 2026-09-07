@@ -13,8 +13,9 @@ enum class DetectedActivityChange {
   ON_FOOT,
   IN_VEHICLE,
   STILL,
-  // Appended last so existing ordinals (used for the IntArray IPC to BackgroundService) stay stable.
-  CYCLING
+  // Appended last so existing ordinals (used for the IntArray IPC to BackgroundService) stay
+  // stable.
+  CYCLING,
 }
 
 /**
@@ -106,11 +107,10 @@ class ActivityMonitoringModeController(
       // don't flap the locator. Going STILL before the dwell elapses cancels it.
       Timber.i("Active detected; arming locator boost in ${entryDelaySeconds}s (entry dwell)")
       cancelPendingEntry()
-      entryJob =
-          scope.launch {
-            delay(entryDelaySeconds.seconds)
-            onEntryDwellElapsed(onFoot)
-          }
+      entryJob = scope.launch {
+        delay(entryDelaySeconds.seconds)
+        onEntryDwellElapsed(onFoot)
+      }
     }
   }
 
@@ -175,11 +175,10 @@ class ActivityMonitoringModeController(
     val delaySeconds = preferences.activityRevertDelaySeconds
     Timber.i("Still detected; arming locator-boost revert in ${delaySeconds}s")
     cancelPendingRevert()
-    revertJob =
-        scope.launch {
-          delay(delaySeconds.seconds)
-          onRevertTimerElapsed()
-        }
+    revertJob = scope.launch {
+      delay(delaySeconds.seconds)
+      onRevertTimerElapsed()
+    }
   }
 
   /** Clears the boost immediately, e.g. when the feature is switched off. */
@@ -191,8 +190,8 @@ class ActivityMonitoringModeController(
   }
 
   /**
-   * Clears an active driving boost immediately, e.g. when [Preferences.boostLocatorWhileDriving]
-   * is switched off mid-drive. Unlike [onFeatureDisabled], leaves an active on-foot/cycling boost
+   * Clears an active driving boost immediately, e.g. when [Preferences.boostLocatorWhileDriving] is
+   * switched off mid-drive. Unlike [onFeatureDisabled], leaves an active on-foot/cycling boost
    * untouched, since that boost may be unrelated to the driving toggle.
    */
   @Synchronized

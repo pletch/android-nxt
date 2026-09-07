@@ -21,17 +21,13 @@ import timber.log.Timber
 class ExportedLogContentProvider : ContentProvider() {
 
   private fun logEntriesForUri(uri: Uri): List<LogEntry>? =
-      Timber.forest()
-          .filterIsInstance<TimberInMemoryLogTree>()
-          .firstOrNull()
-          ?.logLines()
-          ?.filter {
-            if (uri.pathSegments.contains("debug=true")) {
-              it.priority >= Log.DEBUG
-            } else {
-              it.priority >= Log.INFO
-            }
-          }
+      Timber.forest().filterIsInstance<TimberInMemoryLogTree>().firstOrNull()?.logLines()?.filter {
+        if (uri.pathSegments.contains("debug=true")) {
+          it.priority >= Log.DEBUG
+        } else {
+          it.priority >= Log.INFO
+        }
+      }
 
   override fun insert(uri: Uri, values: ContentValues?): Uri? {
     return null
@@ -50,7 +46,7 @@ class ExportedLogContentProvider : ContentProvider() {
       projection: Array<out String>?,
       selection: String?,
       selectionArgs: Array<out String>?,
-      sortOrder: String?
+      sortOrder: String?,
   ): Cursor? =
       logEntriesForUri(uri)?.let {
         val m = MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), 1)
@@ -64,7 +60,7 @@ class ExportedLogContentProvider : ContentProvider() {
       uri: Uri,
       values: ContentValues?,
       selection: String?,
-      selectionArgs: Array<out String>?
+      selectionArgs: Array<out String>?,
   ): Int {
     return 0
   }

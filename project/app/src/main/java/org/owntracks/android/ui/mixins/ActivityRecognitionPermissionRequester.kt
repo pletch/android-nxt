@@ -13,7 +13,7 @@ import timber.log.Timber
 class ActivityRecognitionPermissionRequester(
     caller: ActivityResultCaller,
     private val permissionGrantedCallback: () -> Unit,
-    private val permissionDeniedCallback: () -> Unit
+    private val permissionDeniedCallback: () -> Unit,
 ) {
   private val permissionRequest =
       caller.registerForActivityResult(ActivityResultContracts.RequestPermission()) {

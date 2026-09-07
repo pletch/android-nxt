@@ -25,6 +25,8 @@ class UnitFormatterTest {
   fun `explicit unit preferences resolve to their system regardless of locale`() {
     assertEquals(UnitSystem.METRIC, UnitFormatter.resolveSystem(UnitOfMeasure.Metric, Locale.US))
     assertEquals(
-        UnitSystem.IMPERIAL, UnitFormatter.resolveSystem(UnitOfMeasure.Imperial, Locale.UK))
+        UnitSystem.IMPERIAL,
+        UnitFormatter.resolveSystem(UnitOfMeasure.Imperial, Locale.UK),
+    )
   }
 }

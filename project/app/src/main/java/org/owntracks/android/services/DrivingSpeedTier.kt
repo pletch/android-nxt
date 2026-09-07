@@ -18,7 +18,8 @@ object DrivingSpeedTier {
           30 to 6, // city / traffic: tight, capture turns
           70 to 9, // arterial roads
           110 to 12, // highway
-          Int.MAX_VALUE to 16) // motorway: coarse, let the GPS sleep between fixes
+          Int.MAX_VALUE to 16,
+      ) // motorway: coarse, let the GPS sleep between fixes
 
   private const val HYSTERESIS_KMH = 8
 

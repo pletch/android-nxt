@@ -10,10 +10,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ShareCompat
 import androidx.core.net.toUri
-import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
@@ -56,7 +56,9 @@ class LogViewerActivity : AppCompatActivity() {
     super.onCreate(savedInstanceState)
     binding =
         DataBindingUtil.setContentView<UiPreferencesLogsBinding>(
-                this, R.layout.ui_preferences_logs)
+                this,
+                R.layout.ui_preferences_logs,
+            )
             .apply {
               lifecycleOwner = this@LogViewerActivity
               setSupportActionBar(appbar.toolbar)
@@ -87,7 +89,9 @@ class LogViewerActivity : AppCompatActivity() {
                 resources.getColor(R.color.log_debug_tag_color),
                 resources.getColor(R.color.log_info_tag_color),
                 resources.getColor(R.color.log_warning_tag_color),
-                resources.getColor(R.color.log_error_tag_color)))
+                resources.getColor(R.color.log_error_tag_color),
+            )
+        )
     restartLogCollector()
 
     binding.logsRecyclerView.apply {
@@ -117,14 +121,13 @@ class LogViewerActivity : AppCompatActivity() {
   private fun restartLogCollector() {
     collectorJob?.cancel("Restarting")
     logAdapter.clearLogs()
-    collectorJob =
-        lifecycleScope.launch {
-          viewModel.logLines().flowWithLifecycle(lifecycle, Lifecycle.State.STARTED).collect {
-            if (viewModel.isDebugEnabled() || it.priority >= Log.INFO) {
-              updateAdapterWithLogLines(it)
-            }
-          }
+    collectorJob = lifecycleScope.launch {
+      viewModel.logLines().flowWithLifecycle(lifecycle, Lifecycle.State.STARTED).collect {
+        if (viewModel.isDebugEnabled() || it.priority >= Log.INFO) {
+          updateAdapterWithLogLines(it)
         }
+      }
+    }
   }
 
   private fun updateAdapterWithLogLines(logEntry: LogEntry) {

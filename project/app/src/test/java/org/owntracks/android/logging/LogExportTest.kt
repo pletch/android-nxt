@@ -15,7 +15,8 @@ class LogExportTest {
           tag = "SomeClass/someMethod/42",
           message = message,
           threadName = "backgroundHandlerThread",
-          time = Date(1785929165000))
+          time = Date(1785929165000),
+      )
 
   private fun written(entries: List<LogEntry>, preamble: String = ""): ByteArray =
       ByteArrayOutputStream().also { writeEntriesTo(it, entries, preamble) }.toByteArray()
@@ -41,7 +42,8 @@ class LogExportTest {
   @Test
   fun `reported size matches the written payload for a typical buffer`() {
     assertSizeMatchesPayload(
-        (1..500).map { entry("Location result received: lat=39.7564529900493,long=-86.155795787") })
+        (1..500).map { entry("Location result received: lat=39.7564529900493,long=-86.155795787") }
+    )
   }
 
   @Test
@@ -61,7 +63,9 @@ class LogExportTest {
         listOf(
             entry("region entered: Café ☕"),
             entry("contact: 日本語のトラッカー"),
-            entry("emoji in a tid: 🚗💨")))
+            entry("emoji in a tid: 🚗💨"),
+        )
+    )
   }
 
   /** Messages already containing newlines must not be miscounted as separators. */
@@ -91,13 +95,14 @@ class LogExportTest {
   fun `an empty preamble writes nothing`() {
     assertEquals(
         written(listOf(entry("first"))).toString(Charsets.UTF_8),
-        written(listOf(entry("first")), "").toString(Charsets.UTF_8))
+        written(listOf(entry("first")), "").toString(Charsets.UTF_8),
+    )
   }
 
   @Test
   fun `entries are separated by a single newline with none trailing`() {
-    val text = written(listOf(entry("first"), entry("second"), entry("third")))
-        .toString(Charsets.UTF_8)
+    val text =
+        written(listOf(entry("first"), entry("second"), entry("third"))).toString(Charsets.UTF_8)
     assertEquals(2, text.count { it == '\n' })
     assertFalse(text.endsWith("\n"))
     assertEquals(3, text.lines().size)
@@ -106,6 +111,9 @@ class LogExportTest {
   @Test
   fun `each written line is the entry's exported form`() {
     val entries = listOf(entry("first"), entry("second", priority = Log.ERROR))
-    assertEquals(entries.map { it.toExportedString() }, written(entries).toString(Charsets.UTF_8).lines())
+    assertEquals(
+        entries.map { it.toExportedString() },
+        written(entries).toString(Charsets.UTF_8).lines(),
+    )
   }
 }

@@ -9,7 +9,7 @@ import timber.log.Timber
 class NetworkTrackingCallback(
     private val endpointState: () -> EndpointState,
     private val reconnectFunction: () -> Unit,
-    private val onCurrentNetworkLost: () -> Unit
+    private val onCurrentNetworkLost: () -> Unit,
 ) : ConnectivityManager.NetworkCallback() {
   var justRegistered = true
     private set

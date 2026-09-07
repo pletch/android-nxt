@@ -55,7 +55,9 @@ class CrashLogTest {
 
   @Test
   fun `only the newest reports are kept`() {
-    (1..CrashLog.MAX_RETAINED + 3).forEach { crashLog.record("main", boom("crash $it"), at = it * 1000L) }
+    (1..CrashLog.MAX_RETAINED + 3).forEach {
+      crashLog.record("main", boom("crash $it"), at = it * 1000L)
+    }
 
     val reports = crashLog.pending()
     assertEquals(CrashLog.MAX_RETAINED, reports.size)
@@ -110,7 +112,8 @@ class CrashLogTest {
         description = "user request after error: Input dispatching timed out",
         reason = 6,
         status = 0,
-        trace = "main (state=BLOCKED)\n  at org.owntracks.android.Boom.hang".byteInputStream())
+        trace = "main (state=BLOCKED)\n  at org.owntracks.android.Boom.hang".byteInputStream(),
+    )
 
     val report = crashLog.pending().single().readText()
     assertTrue(report, report.contains("Input dispatching timed out"))
@@ -119,7 +122,13 @@ class CrashLogTest {
 
   @Test
   fun `a system exit with no retained trace still produces a report`() {
-    crashLog.recordSystemExit(at = 1000, description = "native crash", reason = 5, status = 0, trace = null)
+    crashLog.recordSystemExit(
+        at = 1000,
+        description = "native crash",
+        reason = 5,
+        status = 0,
+        trace = null,
+    )
 
     assertTrue(crashLog.pending().single().readText().contains("(no trace retained by the system)"))
   }
@@ -169,7 +178,8 @@ class CrashLogTest {
 
   @Test
   fun `a crash written by an older version is imported`() {
-    val legacy = noBackupDir.resolve("crash.log").apply { writeText("Thread: main\nException: old") }
+    val legacy =
+        noBackupDir.resolve("crash.log").apply { writeText("Thread: main\nException: old") }
 
     crashLog.importLegacy()
 

@@ -15,7 +15,7 @@ import org.owntracks.android.preferences.types.UnitOfMeasure
 
 enum class UnitSystem {
   METRIC,
-  IMPERIAL
+  IMPERIAL,
 }
 
 /**
@@ -35,8 +35,10 @@ object UnitFormatter {
         UnitOfMeasure.Metric -> UnitSystem.METRIC
         UnitOfMeasure.Imperial -> UnitSystem.IMPERIAL
         UnitOfMeasure.Default ->
-            if (LocaleData.getMeasurementSystem(ULocale.forLocale(locale)) ==
-                LocaleData.MeasurementSystem.SI) {
+            if (
+                LocaleData.getMeasurementSystem(ULocale.forLocale(locale)) ==
+                    LocaleData.MeasurementSystem.SI
+            ) {
               UnitSystem.METRIC
             } else {
               UnitSystem.IMPERIAL
@@ -82,7 +84,9 @@ object UnitFormatter {
   private fun systemFor(context: Context): UnitSystem {
     val preferences =
         EntryPointAccessors.fromApplication(
-                context.applicationContext, UnitFormatterEntryPoint::class.java)
+                context.applicationContext,
+                UnitFormatterEntryPoint::class.java,
+            )
             .preferences()
     return resolveSystem(preferences.units, Locale.getDefault())
   }

@@ -52,7 +52,8 @@ constructor(@Assisted private val context: Context, @Assisted workerParams: Work
         context.bindService(
             Intent(context, BackgroundService::class.java),
             serviceConnection,
-            Context.BIND_AUTO_CREATE)
+            Context.BIND_AUTO_CREATE,
+        )
     if (!bound) {
       Timber.w("Unable to bind to the service to bring it up")
       return Result.failure()

@@ -18,11 +18,12 @@ abstract class LocationProviderClient {
    */
   @RequiresPermission(
       anyOf =
-          ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"])
+          ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"]
+  )
   fun requestLocationUpdates(
       locationRequest: LocationRequest,
       clientCallBack: LocationCallback,
-      looper: Looper
+      looper: Looper,
   ) {
     removeLocationUpdates(clientCallBack)
     actuallyRequestLocationUpdates(locationRequest, clientCallBack, looper)
@@ -33,7 +34,7 @@ abstract class LocationProviderClient {
   protected abstract fun actuallyRequestLocationUpdates(
       locationRequest: LocationRequest,
       clientCallBack: LocationCallback,
-      looper: Looper
+      looper: Looper,
   )
 
   abstract fun removeLocationUpdates(clientCallBack: LocationCallback)
@@ -48,10 +49,11 @@ abstract class LocationProviderClient {
    */
   @RequiresPermission(
       anyOf =
-          ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"])
+          ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"]
+  )
   abstract fun requestLocationUpdates(
       locationRequest: LocationRequest,
-      pendingIntent: PendingIntent
+      pendingIntent: PendingIntent,
   )
 
   abstract fun removeLocationUpdates(pendingIntent: PendingIntent)

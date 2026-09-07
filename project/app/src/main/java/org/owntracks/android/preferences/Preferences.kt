@@ -35,32 +35,25 @@ import timber.log.Timber
 class Preferences
 @Inject
 constructor(
-  private val preferencesStore: PreferencesStore,
-  @param:Named("importConfigurationIdlingResource")
-    private val importConfigurationIdlingResource: SimpleIdlingResource
+    private val preferencesStore: PreferencesStore,
+    @param:Named("importConfigurationIdlingResource")
+    private val importConfigurationIdlingResource: SimpleIdlingResource,
 ) {
   val allConfigKeys =
       Preferences::class.declaredMemberProperties.filter { property ->
         property.annotations.any { annotation -> annotation is Preference }
       }
 
-  private val importableConfigKeys =
-      allConfigKeys.filter { property ->
-        property.annotations.any { annotation -> annotation is Preference && annotation.importable }
-      }
+  private val importableConfigKeys = allConfigKeys.filter { property ->
+    property.annotations.any { annotation -> annotation is Preference && annotation.importable }
+  }
 
-  private val mqttExportedConfigKeys =
-      allConfigKeys.filter { property ->
-        property.annotations.any { annotation ->
-          annotation is Preference && annotation.exportModeMqtt
-        }
-      }
-  private val httpExportedConfigKeys =
-      allConfigKeys.filter { property ->
-        property.annotations.any { annotation ->
-          annotation is Preference && annotation.exportModeHttp
-        }
-      }
+  private val mqttExportedConfigKeys = allConfigKeys.filter { property ->
+    property.annotations.any { annotation -> annotation is Preference && annotation.exportModeMqtt }
+  }
+  private val httpExportedConfigKeys = allConfigKeys.filter { property ->
+    property.annotations.any { annotation -> annotation is Preference && annotation.exportModeHttp }
+  }
 
   private val placeholder = Any()
   private val listeners = HashMap<OnPreferenceChangeListener, Any>()
@@ -85,7 +78,9 @@ constructor(
    */
   fun importKeyValue(key: String, value: Any) {
     importPreference(
-        allConfigKeys.filterIsInstance<KMutableProperty<*>>().first { it.name == key }, value)
+        allConfigKeys.filterIsInstance<KMutableProperty<*>>().first { it.name == key },
+        value,
+    )
   }
 
   /**
@@ -115,7 +110,8 @@ constructor(
               } catch (_: java.lang.IllegalArgumentException) {
                 Timber.w(
                     "Trying to import wrong type of preference for ${it.name}. " +
-                        "Expected ${it.getter.returnType} but given ${configValue.javaClass}. Ignoring.")
+                        "Expected ${it.getter.returnType} but given ${configValue.javaClass}. Ignoring."
+                )
               }
             }
           }
@@ -133,7 +129,8 @@ constructor(
               } catch (_: java.lang.IllegalArgumentException) {
                 Timber.w(
                     "Trying to import wrong type of preference for $key. " +
-                        "Expected ${property.getter.returnType} but given ${configValue.javaClass}. Ignoring.")
+                        "Expected ${property.getter.returnType} but given ${configValue.javaClass}. Ignoring."
+                )
               }
             }
           }
@@ -147,8 +144,10 @@ constructor(
    * [FromConfiguration] method found for an enum type).
    */
   private fun resolvePreferenceValue(it: KMutableProperty<*>, value: Any): Any? {
-    if (it.returnType.isSubtypeOf(typeOf<Enum<*>>()) ||
-        it.returnType.isSubtypeOf(typeOf<Enum<*>?>())) {
+    if (
+        it.returnType.isSubtypeOf(typeOf<Enum<*>>()) ||
+            it.returnType.isSubtypeOf(typeOf<Enum<*>?>())
+    ) {
       // Find the companion object method annotated with FromConfiguration with a single parameter
       // that's the same type as the configuration value
       val conversionMethod =
@@ -158,8 +157,9 @@ constructor(
                 method.parameters.any { it.type.jvmErasure == value.javaClass.kotlin }
           } ?: return null
       return conversionMethod.call(it.returnType.jvmErasure.companionObjectInstance, value)
-    } else if (it.returnType.isSubtypeOf(typeOf<StringMaxTwoAlphaNumericChars>()) &&
-        value is String) {
+    } else if (
+        it.returnType.isSubtypeOf(typeOf<StringMaxTwoAlphaNumericChars>()) && value is String
+    ) {
       return StringMaxTwoAlphaNumericChars(value)
     } else if (value is String) {
       return when {
@@ -536,7 +536,8 @@ constructor(
         setOf(
             EXPERIMENTAL_FEATURE_LOCATION_PING_USES_HIGH_ACCURACY_LOCATION_REQUEST,
             EXPERIMENTAL_FEATURE_REQUEST_LOCATION_ON_SIGNIFICANT_MOTION,
-            EXPERIMENTAL_FEATURE_SMOOTH_LOCATIONS)
+            EXPERIMENTAL_FEATURE_SMOOTH_LOCATIONS,
+        )
 
     val SYSTEM_NIGHT_AUTO_MODE by lazy {
       if (SDK_INT > Build.VERSION_CODES.Q) {
@@ -554,7 +555,8 @@ constructor(
             Preferences::host.name,
             Preferences::username.name,
             Preferences::clientId.name,
-            Preferences::tlsClientCrt.name)
+            Preferences::tlsClientCrt.name,
+        )
   }
 
   @Target(AnnotationTarget.PROPERTY)
@@ -562,7 +564,7 @@ constructor(
   annotation class Preference(
       val exportModeMqtt: Boolean = true,
       val exportModeHttp: Boolean = true,
-      val importable: Boolean = true
+      val importable: Boolean = true,
   )
 
   interface OnPreferenceChangeListener {

@@ -57,14 +57,15 @@ class CrashLog(private val directory: File) {
         |Stacktrace:
         |${throwable.stackTraceToString()}
         """
-                .trimMargin())
+                .trimMargin()
+        )
     prune()
   }
 
   /**
-   * Writes a report for a death the uncaught exception handler never saw — an ANR or a native
-   * crash — from the record the system kept. [trace] is the system's own dump (every thread's stack
-   * for an ANR, the tombstone for a native crash); it's read and closed here, truncated at
+   * Writes a report for a death the uncaught exception handler never saw — an ANR or a native crash
+   * — from the record the system kept. [trace] is the system's own dump (every thread's stack for
+   * an ANR, the tombstone for a native crash); it's read and closed here, truncated at
    * [MAX_TRACE_CHARS] so that one ANR can't dominate an export.
    */
   fun recordSystemExit(
@@ -72,7 +73,7 @@ class CrashLog(private val directory: File) {
       description: String?,
       reason: Int,
       status: Int,
-      trace: InputStream?
+      trace: InputStream?,
   ) {
     directory.mkdirs()
     val traceText =
@@ -87,7 +88,8 @@ class CrashLog(private val directory: File) {
         |Stacktrace:
         |$traceText
         """
-                .trimMargin())
+                .trimMargin()
+        )
     prune()
   }
 
@@ -96,8 +98,10 @@ class CrashLog(private val directory: File) {
    * the reports themselves: [acknowledge] must not make the system's list look new again, or an old
    * ANR would be re-imported and re-notified on every process start forever.
    */
-  fun lastImportedExitTimestamp(): Long =
-      runCatching { watermarkFile.readText().trim().toLong() }.getOrDefault(0L)
+  fun lastImportedExitTimestamp(): Long = runCatching {
+    watermarkFile.readText().trim().toLong()
+  }
+      .getOrDefault(0L)
 
   fun markExitsImportedUpTo(timestamp: Long) {
     runCatching {
@@ -109,7 +113,9 @@ class CrashLog(private val directory: File) {
   /** Unacknowledged crash reports, oldest first. */
   fun pending(): List<File> =
       directory
-          .listFiles { file -> file.name.startsWith(FILE_PREFIX) && file.name.endsWith(FILE_SUFFIX) }
+          .listFiles { file ->
+            file.name.startsWith(FILE_PREFIX) && file.name.endsWith(FILE_SUFFIX)
+          }
           ?.sortedBy(File::getName)
           .orEmpty()
 

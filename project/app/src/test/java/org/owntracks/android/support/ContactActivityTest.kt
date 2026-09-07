@@ -8,7 +8,9 @@ class ContactActivityTest {
   @Test
   fun `motionactivities map to the right badge`() {
     assertEquals(
-        ContactActivity.DRIVING, ContactActivity.fromMotionActivities(listOf("automotive")))
+        ContactActivity.DRIVING,
+        ContactActivity.fromMotionActivities(listOf("automotive")),
+    )
     assertEquals(ContactActivity.WALKING, ContactActivity.fromMotionActivities(listOf("walking")))
     assertEquals(ContactActivity.WALKING, ContactActivity.fromMotionActivities(listOf("running")))
     assertEquals(ContactActivity.CYCLING, ContactActivity.fromMotionActivities(listOf("cycling")))
@@ -19,23 +21,28 @@ class ContactActivityTest {
   fun `automotive wins when combined with other activities`() {
     assertEquals(
         ContactActivity.DRIVING,
-        ContactActivity.fromMotionActivities(listOf("walking", "automotive")))
+        ContactActivity.fromMotionActivities(listOf("walking", "automotive")),
+    )
   }
 
   @Test
   fun `cycling beats walking but loses to automotive`() {
     assertEquals(
         ContactActivity.CYCLING,
-        ContactActivity.fromMotionActivities(listOf("walking", "cycling")))
+        ContactActivity.fromMotionActivities(listOf("walking", "cycling")),
+    )
     assertEquals(
         ContactActivity.DRIVING,
-        ContactActivity.fromMotionActivities(listOf("cycling", "automotive")))
+        ContactActivity.fromMotionActivities(listOf("cycling", "automotive")),
+    )
   }
 
   @Test
   fun `motionactivities are case-insensitive`() {
     assertEquals(
-        ContactActivity.DRIVING, ContactActivity.fromMotionActivities(listOf("Automotive")))
+        ContactActivity.DRIVING,
+        ContactActivity.fromMotionActivities(listOf("Automotive")),
+    )
   }
 
   @Test

@@ -30,9 +30,10 @@ import dagger.hilt.android.HiltAndroidApp
 import dagger.hilt.components.SingletonComponent
 import java.security.Security
 import javax.inject.Provider
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlin.time.Instant
 import org.conscrypt.Conscrypt
 import org.owntracks.android.di.CustomBindingComponentBuilder
 import org.owntracks.android.di.CustomBindingEntryPoint
@@ -47,7 +48,6 @@ import org.owntracks.android.support.RunThingsOnOtherThreads
 import org.owntracks.android.support.receiver.StartBackgroundServiceReceiver
 import org.owntracks.android.ui.status.logs.LogViewerActivity
 import timber.log.Timber
-import kotlin.time.ExperimentalTime
 
 @HiltAndroidApp
 class App : BaseApp() {
@@ -146,14 +146,16 @@ open class BaseApp :
               .detectNetwork()
               .penaltyFlashScreen()
               .penaltyDialog()
-              .build())
+              .build()
+      )
       StrictMode.setVmPolicy(
           StrictMode.VmPolicy.Builder()
               .detectLeakedSqlLiteObjects()
               .detectLeakedClosableObjects()
               .detectFileUriExposure()
               .penaltyLog()
-              .build())
+              .build()
+      )
     }
 
     preferences.registerOnPreferenceChangedListener(this)
@@ -182,7 +184,8 @@ open class BaseApp :
             ApplicationExitInfo.REASON_CRASH,
             ApplicationExitInfo.REASON_CRASH_NATIVE,
             ApplicationExitInfo.REASON_ANR,
-            ApplicationExitInfo.REASON_LOW_MEMORY)
+            ApplicationExitInfo.REASON_LOW_MEMORY,
+        )
     val exits =
         (this.getSystemService(ACTIVITY_SERVICE) as ActivityManager)
             .getHistoricalProcessExitReasons(this.packageName, 0, 10)
@@ -217,13 +220,14 @@ open class BaseApp :
         .sortedBy { it.timestamp }
         .forEach {
           runCatching {
-                crashLog.recordSystemExit(
-                    it.timestamp,
-                    it.description,
-                    it.reason,
-                    it.status,
-                    runCatching { it.traceInputStream }.getOrNull())
-              }
+            crashLog.recordSystemExit(
+                it.timestamp,
+                it.description,
+                it.reason,
+                it.status,
+                runCatching { it.traceInputStream }.getOrNull(),
+            )
+          }
               .onFailure { failure -> Timber.e(failure, "Unable to record system exit trace") }
         }
     exits.maxOfOrNull { it.timestamp }?.let { crashLog.markExitsImportedUpTo(it) }
@@ -250,8 +254,10 @@ open class BaseApp :
   }
 
   private fun notifyOfCrashes(count: Int) {
-    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-        PackageManager.PERMISSION_GRANTED) {
+    if (
+        ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+    ) {
       return
     }
     val text = resources.getQuantityString(R.plurals.crashNotificationText, count, count)
@@ -270,7 +276,9 @@ open class BaseApp :
                 0,
                 Intent(this, LogViewerActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        )
         .build()
         .run { notificationManager.notify(NOTIFICATION_TAG_CRASH, NOTIFICATION_ID_CRASH, this) }
   }
@@ -310,7 +318,8 @@ open class BaseApp :
       NotificationChannel(
               NOTIFICATION_CHANNEL_ONGOING,
               ongoingNotificationChannelName,
-              NotificationManager.IMPORTANCE_LOW)
+              NotificationManager.IMPORTANCE_LOW,
+          )
           .apply {
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             description = getString(R.string.notificationChannelOngoingDescription)
@@ -330,7 +339,8 @@ open class BaseApp :
       NotificationChannel(
               NOTIFICATION_CHANNEL_EVENTS,
               eventsNotificationChannelName,
-              NotificationManager.IMPORTANCE_HIGH)
+              NotificationManager.IMPORTANCE_HIGH,
+          )
           .apply {
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             description = getString(R.string.notificationChannelEventsDescription)
@@ -350,7 +360,8 @@ open class BaseApp :
       NotificationChannel(
               GeocoderProvider.ERROR_NOTIFICATION_CHANNEL_ID,
               errorNotificationChannelName,
-              NotificationManager.IMPORTANCE_LOW)
+              NotificationManager.IMPORTANCE_LOW,
+          )
           .apply { lockscreenVisibility = Notification.VISIBILITY_PRIVATE }
           .run { notificationManager.createNotificationChannel(this) }
     }
@@ -367,13 +378,15 @@ open class BaseApp :
 
   override fun onTrimMemory(level: Int) {
     Timber.w(
-        "onTrimMemory notified ${getAvailableMemory().run { "isLowMemory: $lowMemory availMem: ${android.text.format.Formatter.formatShortFileSize(applicationContext,availMem)}, threshold: ${android.text.format.Formatter.formatShortFileSize(applicationContext,threshold)} totalMemory: ${android.text.format.Formatter.formatShortFileSize(applicationContext,totalMem)} " }}")
+        "onTrimMemory notified ${getAvailableMemory().run { "isLowMemory: $lowMemory availMem: ${android.text.format.Formatter.formatShortFileSize(applicationContext,availMem)}, threshold: ${android.text.format.Formatter.formatShortFileSize(applicationContext,threshold)} totalMemory: ${android.text.format.Formatter.formatShortFileSize(applicationContext,totalMem)} " }}"
+    )
     super.onTrimMemory(level)
   }
 
   override fun onLowMemory() {
     Timber.w(
-        "onLowMemory notified ${getAvailableMemory().run { "isLowMemory: $lowMemory availMem: ${android.text.format.Formatter.formatShortFileSize(applicationContext,availMem)}, threshold: ${android.text.format.Formatter.formatShortFileSize(applicationContext,threshold)} totalMemory: ${android.text.format.Formatter.formatShortFileSize(applicationContext,totalMem)} " }}")
+        "onLowMemory notified ${getAvailableMemory().run { "isLowMemory: $lowMemory availMem: ${android.text.format.Formatter.formatShortFileSize(applicationContext,availMem)}, threshold: ${android.text.format.Formatter.formatShortFileSize(applicationContext,threshold)} totalMemory: ${android.text.format.Formatter.formatShortFileSize(applicationContext,totalMem)} " }}"
+    )
     super.onLowMemory()
   }
 

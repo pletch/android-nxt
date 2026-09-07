@@ -23,7 +23,9 @@ class GMSActivityRecognitionClient(private val context: Context) : ActivityRecog
   override fun requestActivityUpdates(onFailure: () -> Unit) {
     client
         .requestActivityTransitionUpdates(
-            ActivityTransitionRequest(TRANSITIONS), getTransitionPendingIntent())
+            ActivityTransitionRequest(TRANSITIONS),
+            getTransitionPendingIntent(),
+        )
         .addOnSuccessListener {
           Timber.d("Registered for activity transition updates")
           // The transition API only fires on a *change*, so an activity already in progress at
@@ -88,20 +90,21 @@ class GMSActivityRecognitionClient(private val context: Context) : ActivityRecog
             DetectedActivity.ON_FOOT,
             DetectedActivity.STILL,
             DetectedActivity.IN_VEHICLE,
-            DetectedActivity.ON_BICYCLE)
+            DetectedActivity.ON_BICYCLE,
+        )
 
-    private val TRANSITIONS =
-        MONITORED_ACTIVITIES.flatMap { activity ->
-          listOf(
-              ActivityTransition.Builder()
-                  .setActivityType(activity)
-                  .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_ENTER)
-                  .build(),
-              ActivityTransition.Builder()
-                  .setActivityType(activity)
-                  .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_EXIT)
-                  .build())
-        }
+    private val TRANSITIONS = MONITORED_ACTIVITIES.flatMap { activity ->
+      listOf(
+          ActivityTransition.Builder()
+              .setActivityType(activity)
+              .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_ENTER)
+              .build(),
+          ActivityTransition.Builder()
+              .setActivityType(activity)
+              .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_EXIT)
+              .build(),
+      )
+    }
 
     fun create(context: Context): ActivityRecognitionClient = GMSActivityRecognitionClient(context)
   }

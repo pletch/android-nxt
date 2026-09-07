@@ -5,12 +5,12 @@ import android.location.Location
 import android.os.Build
 import android.os.Looper
 import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 import org.owntracks.android.location.LocationAvailability
 import org.owntracks.android.location.LocationCallback
 import org.owntracks.android.location.LocationProviderClient
 import org.owntracks.android.location.LocationRequest
 import org.owntracks.android.location.LocationResult
-import kotlin.time.ExperimentalTime
 
 class MockLocationProviderClient : LocationProviderClient() {
   private val callbacks = mutableSetOf<LocationCallback>()
@@ -33,7 +33,7 @@ class MockLocationProviderClient : LocationProviderClient() {
   override fun actuallyRequestLocationUpdates(
       locationRequest: LocationRequest,
       clientCallBack: LocationCallback,
-      looper: Looper
+      looper: Looper,
   ) {
     callbacks.add(clientCallBack)
     lastLocation?.run {
@@ -49,7 +49,7 @@ class MockLocationProviderClient : LocationProviderClient() {
   // The wake-up registration exists to survive process death, which the tests don't exercise.
   override fun requestLocationUpdates(
       locationRequest: LocationRequest,
-      pendingIntent: PendingIntent
+      pendingIntent: PendingIntent,
   ) {
     // No-op
   }
@@ -70,7 +70,7 @@ fun LocationProviderClient.setLocation(
     longitude: Double,
     altitude: Double = 0.0,
     accuracy: Float = 5.0f,
-    speed: Float = 0.0f
+    speed: Float = 0.0f,
 ) {
   (this as MockLocationProviderClient).setLocation(
       Location("test").apply {
@@ -84,5 +84,6 @@ fun LocationProviderClient.setLocation(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
           this.isMock = true
         }
-      })
+      }
+  )
 }

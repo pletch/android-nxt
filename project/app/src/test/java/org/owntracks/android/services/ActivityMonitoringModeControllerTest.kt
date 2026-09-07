@@ -94,7 +94,10 @@ class ActivityMonitoringModeControllerTest {
   fun `no boost is applied when Precise location is not granted`() = runTest {
     val controller =
         ActivityMonitoringModeController(
-            preferences, backgroundScope, hasPreciseLocation = { false })
+            preferences,
+            backgroundScope,
+            hasPreciseLocation = { false },
+        )
 
     controller.onActivityChange(DetectedActivityChange.ON_FOOT)
 

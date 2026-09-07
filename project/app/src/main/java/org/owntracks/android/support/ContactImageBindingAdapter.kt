@@ -37,7 +37,7 @@ class ContactImageBindingAdapter
 @Inject
 constructor(
     @ApplicationContext private val context: Context,
-    private val memoryCache: ContactBitmapAndNameMemoryCache
+    private val memoryCache: ContactBitmapAndNameMemoryCache,
 ) {
   @BindingAdapter(value = ["contact", "coroutineScope"])
   fun ImageView.displayFaceInViewAsync(contact: Contact?, scope: CoroutineScope) {
@@ -106,7 +106,8 @@ constructor(
         cx,
         cy,
         radius * 0.85f,
-        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, colorRes) })
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, colorRes) },
+    )
 
     AppCompatResources.getDrawable(context, iconRes)?.apply {
       val glyph = (radius * 1.1f).toInt()
@@ -114,7 +115,8 @@ constructor(
           (cx - glyph / 2).toInt(),
           (cy - glyph / 2).toInt(),
           (cx + glyph / 2).toInt(),
-          (cy + glyph / 2).toInt())
+          (cy + glyph / 2).toInt(),
+      )
       draw(canvas)
     }
     return result
@@ -127,9 +129,11 @@ constructor(
       cacheMutex.withLock {
         val contactBitMapAndName = memoryCache[contact.id]
 
-        if (contactBitMapAndName != null &&
-            contactBitMapAndName is ContactBitmapAndName.CardBitmap &&
-            contactBitMapAndName.bitmap != null) {
+        if (
+            contactBitMapAndName != null &&
+                contactBitMapAndName is ContactBitmapAndName.CardBitmap &&
+                contactBitMapAndName.bitmap != null
+        ) {
           Timber.v("Returning face bitmap for ${contact.id} from cache")
           return@withContext contactBitMapAndName.bitmap
         }
@@ -161,8 +165,10 @@ constructor(
             ?: run {
               // No face pic. Generate a fallback bitmap and cache it.
               memoryCache[contact.id]?.run {
-                if (this is ContactBitmapAndName.TrackerIdBitmap &&
-                    this.trackerId == contact.trackerId) {
+                if (
+                    this is ContactBitmapAndName.TrackerIdBitmap &&
+                        this.trackerId == contact.trackerId
+                ) {
                   this.bitmap
                 } else {
                   null

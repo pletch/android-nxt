@@ -21,8 +21,8 @@ const val DRIVING_BOOST_DISPLACEMENT_METRES = 35
  * (and not in Move mode) the locator is elevated to high accuracy: on foot with the configured
  * on-foot interval/displacement, or driving with the speed-tiered [drivingIntervalSeconds] (see
  * [DrivingSpeedTier]) and a small displacement floor. Otherwise the configured per-mode settings
- * apply, except that in Significant mode [useGnssInSignificantMode] elevates the default priority to
- * high accuracy (so Android 16+ keeps using GNSS) unless an explicit [locatorPriority] is set.
+ * apply, except that in Significant mode [useGnssInSignificantMode] elevates the default priority
+ * to high accuracy (so Android 16+ keeps using GNSS) unless an explicit [locatorPriority] is set.
  */
 fun effectiveLocatorSettings(
     monitoring: MonitoringMode,
@@ -41,26 +41,37 @@ fun effectiveLocatorSettings(
     return EffectiveLocatorSettings(
         LocatorPriority.HighAccuracy,
         activityOnFootLocatorInterval,
-        activityOnFootLocatorDisplacement)
+        activityOnFootLocatorDisplacement,
+    )
   }
   if (boostedByDriving && monitoring != MonitoringMode.Move) {
     return EffectiveLocatorSettings(
-        LocatorPriority.HighAccuracy, drivingIntervalSeconds, DRIVING_BOOST_DISPLACEMENT_METRES)
+        LocatorPriority.HighAccuracy,
+        drivingIntervalSeconds,
+        DRIVING_BOOST_DISPLACEMENT_METRES,
+    )
   }
   return when (monitoring) {
     MonitoringMode.Quiet,
     MonitoringMode.Manual ->
         EffectiveLocatorSettings(
-            locatorPriority ?: LocatorPriority.LowPower, locatorInterval, locatorDisplacement)
+            locatorPriority ?: LocatorPriority.LowPower,
+            locatorInterval,
+            locatorDisplacement,
+        )
     MonitoringMode.Significant ->
         EffectiveLocatorSettings(
             locatorPriority
                 ?: if (useGnssInSignificantMode) LocatorPriority.HighAccuracy
                 else LocatorPriority.BalancedPowerAccuracy,
             locatorInterval,
-            locatorDisplacement)
+            locatorDisplacement,
+        )
     MonitoringMode.Move ->
         EffectiveLocatorSettings(
-            locatorPriority ?: LocatorPriority.HighAccuracy, moveModeLocatorInterval, null)
+            locatorPriority ?: LocatorPriority.HighAccuracy,
+            moveModeLocatorInterval,
+            null,
+        )
   }
 }

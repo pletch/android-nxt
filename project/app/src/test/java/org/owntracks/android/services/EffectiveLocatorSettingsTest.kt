@@ -26,7 +26,8 @@ class EffectiveLocatorSettingsTest {
           activityOnFootLocatorDisplacement = 30,
           boostedByDriving = boostedByDriving,
           drivingIntervalSeconds = drivingIntervalSeconds,
-          useGnssInSignificantMode = useGnssInSignificantMode)
+          useGnssInSignificantMode = useGnssInSignificantMode,
+      )
 
   @Test
   fun `significant mode uses balanced accuracy with the configured interval and displacement`() {
@@ -51,7 +52,8 @@ class EffectiveLocatorSettingsTest {
             MonitoringMode.Significant,
             boosted = false,
             locatorPriority = LocatorPriority.LowPower,
-            useGnssInSignificantMode = true)
+            useGnssInSignificantMode = true,
+        )
     assertEquals(LocatorPriority.LowPower, s.priority)
   }
 
@@ -73,7 +75,10 @@ class EffectiveLocatorSettingsTest {
   fun `an explicit locatorPriority overrides the per-mode default when not boosted`() {
     val s =
         compute(
-            MonitoringMode.Significant, boosted = false, locatorPriority = LocatorPriority.LowPower)
+            MonitoringMode.Significant,
+            boosted = false,
+            locatorPriority = LocatorPriority.LowPower,
+        )
     assertEquals(LocatorPriority.LowPower, s.priority)
   }
 
@@ -89,7 +94,10 @@ class EffectiveLocatorSettingsTest {
   fun `the boost overrides an explicit lower priority`() {
     val s =
         compute(
-            MonitoringMode.Significant, boosted = true, locatorPriority = LocatorPriority.LowPower)
+            MonitoringMode.Significant,
+            boosted = true,
+            locatorPriority = LocatorPriority.LowPower,
+        )
     assertEquals(LocatorPriority.HighAccuracy, s.priority)
     assertEquals(25, s.intervalSeconds)
   }
@@ -117,7 +125,8 @@ class EffectiveLocatorSettingsTest {
             MonitoringMode.Significant,
             boosted = true,
             boostedByDriving = true,
-            drivingIntervalSeconds = 22)
+            drivingIntervalSeconds = 22,
+        )
     assertEquals(25, s.intervalSeconds) // on-foot interval, not the driving interval
   }
 

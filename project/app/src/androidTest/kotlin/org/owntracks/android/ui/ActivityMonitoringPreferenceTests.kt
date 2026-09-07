@@ -32,13 +32,16 @@ class ActivityMonitoringPreferenceTests : TestWithAnActivity<PreferencesActivity
   @get:Rule
   val activityRecognitionPermissionRule: GrantPermissionRule =
       GrantPermissionRule.grant(
-          Manifest.permission.ACTIVITY_RECOGNITION, Manifest.permission.ACCESS_FINE_LOCATION)
+          Manifest.permission.ACTIVITY_RECOGNITION,
+          Manifest.permission.ACCESS_FINE_LOCATION,
+      )
 
   @Test
   fun activity_boost_toggle_and_tuning_values_are_reflected_in_the_configuration() {
     assumeTrue(
         "Activity-triggered monitoring is a Google Play Services (gms) only feature",
-        BuildConfig.FLAVOR == "gms")
+        BuildConfig.FLAVOR == "gms",
+    )
 
     clickOn(R.string.preferencesAdvanced)
 

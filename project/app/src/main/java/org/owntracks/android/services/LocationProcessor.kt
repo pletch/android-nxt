@@ -57,7 +57,7 @@ internal fun resolveTransitionDebounce(
     pending: PendingWaypointTransition?,
     candidate: Int,
     now: Instant,
-    dwell: Duration
+    dwell: Duration,
 ): Pair<Int?, PendingWaypointTransition?> =
     if (pending == null || pending.transition != candidate) {
       null to PendingWaypointTransition(candidate, now)
@@ -71,19 +71,19 @@ internal fun resolveTransitionDebounce(
 class LocationProcessor
 @Inject
 constructor(
-  private val messageProcessor: MessageProcessor,
-  private val preferences: Preferences,
-  private val locationRepo: LocationRepo,
-  private val waypointsRepo: WaypointsRepo,
-  private val deviceMetricsProvider: DeviceMetricsProvider,
-  private val wifiInfoProvider: WifiInfoProvider,
-  @param:ApplicationScope private val scope: CoroutineScope,
-  @param:CoroutineScopes.IoDispatcher private val ioDispatcher: CoroutineDispatcher,
-  @param:Named("publishResponseMessageIdlingResource")
+    private val messageProcessor: MessageProcessor,
+    private val preferences: Preferences,
+    private val locationRepo: LocationRepo,
+    private val waypointsRepo: WaypointsRepo,
+    private val deviceMetricsProvider: DeviceMetricsProvider,
+    private val wifiInfoProvider: WifiInfoProvider,
+    @param:ApplicationScope private val scope: CoroutineScope,
+    @param:CoroutineScopes.IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    @param:Named("publishResponseMessageIdlingResource")
     private val publishResponseMessageIdlingResource: SimpleIdlingResource,
-  @param:Named("mockLocationIdlingResource")
+    @param:Named("mockLocationIdlingResource")
     private val mockLocationIdlingResource: SimpleIdlingResource,
-  @param:Named("nativeGeofencingAvailable") private val nativeGeofencingAvailable: Boolean
+    @param:Named("nativeGeofencingAvailable") private val nativeGeofencingAvailable: Boolean,
 ) : Preferences.OnPreferenceChangeListener {
 
   // Cached: maybeSmooth runs on every continuous DEFAULT fix, and each experimentalFeatures read
@@ -109,7 +109,8 @@ constructor(
           .also {
             if (!it) {
               Timber.d(
-                  "Location accuracy ${l.accuracy} is outside accuracy threshold of ${preferences.ignoreInaccurateLocations}")
+                  "Location accuracy ${l.accuracy} is outside accuracy threshold of ${preferences.ignoreInaccurateLocations}"
+              )
             }
           }
 
@@ -128,22 +129,22 @@ constructor(
   private var lastCorroborationRequestElapsedMs = 0L
 
   /**
-   * Gates the continuous DEFAULT stream against network-location "teleport" artifacts (a
-   * mislocated cell ID, or a wifi AP whose database entry went stale when it moved). Explicit
+   * Gates the continuous DEFAULT stream against network-location "teleport" artifacts (a mislocated
+   * cell ID, or a wifi AP whose database entry went stale when it moved). Explicit
    * USER/CIRCULAR/etc. samples are always trusted; 0 disables the gate entirely.
    *
    * Two failure modes, one shared principle — a bounce is transient but a real move persists, so
    * two consecutive fixes that agree with each other are believed over the published anchor:
    * - **Implausible jump**: the speed implied from the last published fix exceeds
    *   [Preferences.maxImplausibleSpeedKmh]. Withheld — unless the previous withheld fix
-   *   corroborates it, which means the *anchor* is the outlier (a bounce that reached the wire)
-   *   and waiting out the implied-speed window would lock genuine fixes out.
+   *   corroborates it, which means the *anchor* is the outlier (a bounce that reached the wire) and
+   *   waiting out the implied-speed window would lock genuine fixes out.
    * - **Suspicious post-gap jump**: a long publish gap makes any implied speed look plausible (dt
    *   is the denominator), so the speed check is structurally blind right after a gap — exactly
-   *   when a stationary device's displacement-triggered publish is most likely to *be* a bounce.
-   *   A plausible fix that still jumped more than [QUARANTINE_DISTANCE_METRES] is therefore
-   *   withheld until the next fix corroborates it: a genuine relocation costs one fix of latency,
-   *   a bounce never reaches the wire.
+   *   when a stationary device's displacement-triggered publish is most likely to *be* a bounce. A
+   *   plausible fix that still jumped more than [QUARANTINE_DISTANCE_METRES] is therefore withheld
+   *   until the next fix corroborates it: a genuine relocation costs one fix of latency, a bounce
+   *   never reaches the wire.
    *
    * While the on-foot boost is active a second, much tighter speed threshold
    * ([Preferences.activityOnFootMaxImplausibleSpeedKmh]) also applies, but only to jumps of at
@@ -154,7 +155,7 @@ constructor(
    */
   private fun shouldPublishLocation(
       location: Location,
-      reportType: MessageLocation.ReportType
+      reportType: MessageLocation.ReportType,
   ): Boolean {
     if (reportType != MessageLocation.ReportType.DEFAULT) return true
     val last = locationRepo.currentPublishedLocation.value ?: return true
@@ -174,7 +175,8 @@ constructor(
             dtToWithheldSeconds = withheld?.let { (location.time - it.time) / 1000.0 },
             maxSpeedKmh = preferences.maxImplausibleSpeedKmh,
             onFootMaxSpeedKmh = onFootMaxSpeedKmh,
-            onFootMinJumpMetres = preferences.activityOnFootMinImplausibleJumpMetres.toFloat())
+            onFootMinJumpMetres = preferences.activityOnFootMinImplausibleJumpMetres.toFloat(),
+        )
     return when (decision) {
       JumpGateDecision.PUBLISH -> {
         lastWithheldLocation = null
@@ -191,10 +193,13 @@ constructor(
         Timber.w(
             "Withholding suspicious location jump: ${last.distanceTo(location).roundToInt()}m " +
                 "in ${"%.1f".format((location.time - last.time) / 1000.0)}s from $last to " +
-                "$location (awaiting corroboration)")
+                "$location (awaiting corroboration)"
+        )
         val nowMs = SystemClock.elapsedRealtime()
-        if (firstWithholdOfEpisode &&
-            nowMs - lastCorroborationRequestElapsedMs >= CORROBORATION_REQUEST_COOLDOWN_MS) {
+        if (
+            firstWithholdOfEpisode &&
+                nowMs - lastCorroborationRequestElapsedMs >= CORROBORATION_REQUEST_COOLDOWN_MS
+        ) {
           lastCorroborationRequestElapsedMs = nowMs
           mutableCorroborationFixRequests.tryEmit(Unit)
         }
@@ -219,7 +224,9 @@ constructor(
                 longitude = location.longitude,
                 accuracyMetres = location.accuracy,
                 timestampMillis = location.time,
-                speedMetresPerSecond = location.speed))
+                speedMetresPerSecond = location.speed,
+            )
+        )
     // Only the position is smoothed. The sensor-reported accuracy must survive untouched: the
     // ignoreInaccurateLocations gate, the waypoint-transition tolerance (geofenceRadius +
     // accuracy), and the published `acc` all consume it, and the filter's own confidence
@@ -243,7 +250,7 @@ constructor(
 
   private suspend fun publishLocationMessage(
       trigger: MessageLocation.ReportType,
-      location: Location
+      location: Location,
   ): Result<Unit> {
     Timber.v("Maybe publishing $location with trigger $trigger")
     // A non-finite coordinate can't be serialised — `lat`/`lon` are the only Doubles on the wire,
@@ -260,15 +267,20 @@ constructor(
     // If this location has come from the network *and* the most recent location was both recent and
     // high-accuracy, then it's probably not usefully accurate. Drop it.
     locationRepo.currentPublishedLocation.value?.let { lastLocation ->
-      if (location.provider == "network" &&
-          highAccuracyProviders.contains(lastLocation.provider) &&
-          location.time - lastLocation.time <
-              preferences.discardNetworkLocationThresholdSeconds * 1000) {
+      if (
+          location.provider == "network" &&
+              highAccuracyProviders.contains(lastLocation.provider) &&
+              location.time - lastLocation.time <
+                  preferences.discardNetworkLocationThresholdSeconds * 1000
+      ) {
         Timber.d(
-            "Ignoring location from ${location.provider}, last was from ${lastLocation.provider} within ${preferences.discardNetworkLocationThresholdSeconds}s")
+            "Ignoring location from ${location.provider}, last was from ${lastLocation.provider} within ${preferences.discardNetworkLocationThresholdSeconds}s"
+        )
         return Result.failure(
             Exception(
-                "Ignoring location from ${location.provider}, last was recent and high-accuracy"))
+                "Ignoring location from ${location.provider}, last was recent and high-accuracy"
+            )
+        )
       }
     }
 
@@ -282,21 +294,29 @@ constructor(
     Timber.d("publishLocationMessage for $location triggered by $trigger")
 
     // Check if publish would trigger a region if fusedRegionDetection is enabled. Skipped entirely
-    // where native OS geofencing is available (e.g. gms) - that's a purpose-built mechanism with its
-    // own hysteresis, and running this alongside it causes the two to race and flip-flop on the same
+    // where native OS geofencing is available (e.g. gms) - that's a purpose-built mechanism with
+    // its
+    // own hysteresis, and running this alongside it causes the two to race and flip-flop on the
+    // same
     // waypoint state. Where it isn't available (e.g. oss), a transition candidate must instead be
-    // observed consistently for transitionDebounceDwell before being committed, for the same reason.
+    // observed consistently for transitionDebounceDwell before being committed, for the same
+    // reason.
     Timber.d(
-        "Checking if location triggers waypoint transitions. waypoints: $loadedWaypoints, trigger=$trigger, fusedRegionDetection: ${preferences.fusedRegionDetection}, nativeGeofencingAvailable: $nativeGeofencingAvailable")
-    if (loadedWaypoints.isNotEmpty() &&
-        preferences.fusedRegionDetection &&
-        !nativeGeofencingAvailable &&
-        trigger != MessageLocation.ReportType.CIRCULAR) {
+        "Checking if location triggers waypoint transitions. waypoints: $loadedWaypoints, trigger=$trigger, fusedRegionDetection: ${preferences.fusedRegionDetection}, nativeGeofencingAvailable: $nativeGeofencingAvailable"
+    )
+    if (
+        loadedWaypoints.isNotEmpty() &&
+            preferences.fusedRegionDetection &&
+            !nativeGeofencingAvailable &&
+            trigger != MessageLocation.ReportType.CIRCULAR
+    ) {
       pendingWaypointTransitions.keys.retainAll(loadedWaypoints.map { it.id }.toSet())
       loadedWaypoints.forEach { waypoint ->
         val candidate =
-            if (location.distanceTo(waypoint.getLocation()) <=
-                waypoint.geofenceRadius + location.accuracy) {
+            if (
+                location.distanceTo(waypoint.getLocation()) <=
+                    waypoint.geofenceRadius + location.accuracy
+            ) {
               Geofence.GEOFENCE_TRANSITION_ENTER
             } else {
               Geofence.GEOFENCE_TRANSITION_EXIT
@@ -311,7 +331,8 @@ constructor(
                   pendingWaypointTransitions[waypoint.id],
                   candidate,
                   Instant.ofEpochMilli(location.time),
-                  transitionDebounceDwell)
+                  transitionDebounceDwell,
+              )
           if (newPending == null) {
             pendingWaypointTransitions.remove(waypoint.id)
           } else {
@@ -320,19 +341,27 @@ constructor(
           if (transitionToCommit != null) {
             Timber.d("onWaypointTransition triggered by location waypoint intersection event")
             onWaypointTransition(
-                waypoint, location, transitionToCommit, MessageTransition.TRIGGER_LOCATION)
+                waypoint,
+                location,
+                transitionToCommit,
+                MessageTransition.TRIGGER_LOCATION,
+            )
           }
         }
       }
     }
-    if (preferences.monitoring === MonitoringMode.Quiet &&
-        MessageLocation.ReportType.USER != trigger) {
+    if (
+        preferences.monitoring === MonitoringMode.Quiet &&
+            MessageLocation.ReportType.USER != trigger
+    ) {
       Timber.d("message suppressed by monitoring settings: quiet")
       return Result.failure(Exception("message suppressed by monitoring settings: quiet"))
     }
-    if (preferences.monitoring === MonitoringMode.Manual &&
-        MessageLocation.ReportType.USER != trigger &&
-        MessageLocation.ReportType.CIRCULAR != trigger) {
+    if (
+        preferences.monitoring === MonitoringMode.Manual &&
+            MessageLocation.ReportType.USER != trigger &&
+            MessageLocation.ReportType.CIRCULAR != trigger
+    ) {
       Timber.d("message suppressed by monitoring settings: manual")
       return Result.failure(Exception("message suppressed by monitoring settings: manual"))
     }
@@ -368,7 +397,8 @@ constructor(
       listOf(
           MessageLocation.ReportType.RESPONSE,
           MessageLocation.ReportType.USER,
-          MessageLocation.ReportType.CIRCULAR)
+          MessageLocation.ReportType.CIRCULAR,
+      )
 
   private fun calculateInRegions(loadedWaypoints: List<WaypointModel>): List<String> =
       loadedWaypoints
@@ -384,8 +414,10 @@ constructor(
    */
   suspend fun onLocationChanged(location: Location, reportType: MessageLocation.ReportType) {
     Timber.v("OnLocationChanged $location $reportType")
-    if (location.time > locationRepo.currentLocationTime ||
-        reportType != MessageLocation.ReportType.DEFAULT) {
+    if (
+        location.time > locationRepo.currentLocationTime ||
+            reportType != MessageLocation.ReportType.DEFAULT
+    ) {
       if (!shouldPublishLocation(location, reportType)) return
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || location.isMock) {
         Timber.v("Idling location")
@@ -408,18 +440,21 @@ constructor(
       waypointModel: WaypointModel,
       location: Location,
       transition: Int,
-      trigger: String
+      trigger: String,
   ) {
     if (!locationIsWithAccuracyThreshold(location)) {
       Timber.d(
-          "ignoring transition for $location, transition=$transition, trigger=$trigger: low accuracy")
+          "ignoring transition for $location, transition=$transition, trigger=$trigger: low accuracy"
+      )
       return
     }
     Timber.d("OnWaypointTransition $waypointModel $location $transition $trigger")
     scope.launch {
       // If the transition hasn't changed, or has moved from unknown to exit, don't notify.
-      if (transition == waypointModel.lastTransition ||
-          (waypointModel.isUnknown() && transition == Geofence.GEOFENCE_TRANSITION_EXIT)) {
+      if (
+          transition == waypointModel.lastTransition ||
+              (waypointModel.isUnknown() && transition == Geofence.GEOFENCE_TRANSITION_EXIT)
+      ) {
         waypointModel.lastTransition = transition
         waypointsRepo.update(waypointModel, false)
       } else {
@@ -446,7 +481,7 @@ constructor(
       waypointModel: WaypointModel,
       triggeringLocation: Location,
       transition: Int,
-      trigger: String
+      trigger: String,
   ) {
     messageProcessor.queueMessageForSending(
         MessageTransition().apply {
@@ -459,7 +494,8 @@ constructor(
           timestamp = TimeUnit.MILLISECONDS.toSeconds(triggeringLocation.time)
           waypointTimestamp = waypointModel.tst.epochSecond
           description = waypointModel.description
-        })
+        }
+    )
   }
 
   suspend fun publishWaypointsMessage() {
@@ -477,10 +513,12 @@ constructor(
                           radius = it.geofenceRadius
                           timestamp = it.tst.epochSecond
                         }
-                      })
+                      }
+                  )
                 }
               }
-        })
+        }
+    )
     publishResponseMessageIdlingResource.setIdleState(true)
   }
 
@@ -497,16 +535,17 @@ constructor(
                   appHibernation = deviceMetricsProvider.appHibernation
                   locationPermission = deviceMetricsProvider.locationPermission
                 }
-          })
+          }
+      )
       publishResponseMessageIdlingResource.setIdleState(true)
     }
   }
 }
 
 /**
- * Whether [distanceMetres] covered in [dtSeconds] implies a plausible speed given
- * [maxSpeedKmh] (0 disables the check). Split out as a top-level pure function so the
- * teleport-jump logic is unit-testable without instantiating [LocationProcessor].
+ * Whether [distanceMetres] covered in [dtSeconds] implies a plausible speed given [maxSpeedKmh] (0
+ * disables the check). Split out as a top-level pure function so the teleport-jump logic is
+ * unit-testable without instantiating [LocationProcessor].
  */
 internal fun isPlausibleSpeed(distanceMetres: Float, dtSeconds: Double, maxSpeedKmh: Int): Boolean {
   if (maxSpeedKmh <= 0 || dtSeconds <= 0) return true
@@ -530,18 +569,18 @@ internal const val ON_FOOT_MIN_JUMP_METRES_DEFAULT = 100f
  * active).
  *
  * The on-foot threshold only applies to jumps of at least [onFootMinJumpMetres]. Walking-scale
- * artifacts are a couple of hundred metres, but ordinary GNSS scatter is tens of metres, and with
- * a short dt that scatter implies a high speed all by itself — so without a displacement floor the
- * tight threshold would reject good fixes whenever two of them arrived close together. The floor
- * is also what keeps a long publish gap safe: legitimate movement across a Doze gap is large but
- * slow, so it clears the floor and passes on speed.
+ * artifacts are a couple of hundred metres, but ordinary GNSS scatter is tens of metres, and with a
+ * short dt that scatter implies a high speed all by itself — so without a displacement floor the
+ * tight threshold would reject good fixes whenever two of them arrived close together. The floor is
+ * also what keeps a long publish gap safe: legitimate movement across a Doze gap is large but slow,
+ * so it clears the floor and passes on speed.
  */
 private fun jumpIsImplausible(
     distanceMetres: Float,
     dtSeconds: Double,
     maxSpeedKmh: Int,
     onFootMaxSpeedKmh: Int,
-    onFootMinJumpMetres: Float
+    onFootMinJumpMetres: Float,
 ): Boolean {
   if (!isPlausibleSpeed(distanceMetres, dtSeconds, maxSpeedKmh)) return true
   return onFootMaxSpeedKmh > 0 &&
@@ -557,7 +596,7 @@ private const val CORROBORATION_REQUEST_COOLDOWN_MS = 60_000L
 internal enum class JumpGateDecision {
   PUBLISH,
   PUBLISH_CORROBORATED,
-  WITHHOLD
+  WITHHOLD,
 }
 
 /**
@@ -566,9 +605,9 @@ internal enum class JumpGateDecision {
  * fix, if any. [onFootMaxSpeedKmh] is the tighter walking-scale threshold, passed as 0 unless the
  * on-foot boost is active; the gate is off entirely when both thresholds are <= 0.
  *
- * Corroboration is judged against the same combined test, so while on foot a second bad fix
- * landing near the first can't confirm it: genuine walking between two consecutive fixes stays
- * well under the displacement floor and passes regardless.
+ * Corroboration is judged against the same combined test, so while on foot a second bad fix landing
+ * near the first can't confirm it: genuine walking between two consecutive fixes stays well under
+ * the displacement floor and passes regardless.
  */
 internal fun evaluateJumpGate(
     distanceToAnchorMetres: Float,
@@ -577,27 +616,33 @@ internal fun evaluateJumpGate(
     dtToWithheldSeconds: Double?,
     maxSpeedKmh: Int,
     onFootMaxSpeedKmh: Int = 0,
-    onFootMinJumpMetres: Float = ON_FOOT_MIN_JUMP_METRES_DEFAULT
+    onFootMinJumpMetres: Float = ON_FOOT_MIN_JUMP_METRES_DEFAULT,
 ): JumpGateDecision {
   if (maxSpeedKmh <= 0 && onFootMaxSpeedKmh <= 0) return JumpGateDecision.PUBLISH
-  if (!jumpIsImplausible(
-      distanceToAnchorMetres,
-      dtToAnchorSeconds,
-      maxSpeedKmh,
-      onFootMaxSpeedKmh,
-      onFootMinJumpMetres) && distanceToAnchorMetres < QUARANTINE_DISTANCE_METRES) {
+  if (
+      !jumpIsImplausible(
+          distanceToAnchorMetres,
+          dtToAnchorSeconds,
+          maxSpeedKmh,
+          onFootMaxSpeedKmh,
+          onFootMinJumpMetres,
+      ) && distanceToAnchorMetres < QUARANTINE_DISTANCE_METRES
+  ) {
     return JumpGateDecision.PUBLISH
   }
   // Implausible jump, or plausible only thanks to a long gap: believe it once two consecutive
   // fixes agree with each other.
-  if (distanceToWithheldMetres != null &&
-      dtToWithheldSeconds != null &&
-      !jumpIsImplausible(
-          distanceToWithheldMetres,
-          dtToWithheldSeconds,
-          maxSpeedKmh,
-          onFootMaxSpeedKmh,
-          onFootMinJumpMetres)) {
+  if (
+      distanceToWithheldMetres != null &&
+          dtToWithheldSeconds != null &&
+          !jumpIsImplausible(
+              distanceToWithheldMetres,
+              dtToWithheldSeconds,
+              maxSpeedKmh,
+              onFootMaxSpeedKmh,
+              onFootMinJumpMetres,
+          )
+  ) {
     return JumpGateDecision.PUBLISH_CORROBORATED
   }
   return JumpGateDecision.WITHHOLD

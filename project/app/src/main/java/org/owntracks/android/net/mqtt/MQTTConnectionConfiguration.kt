@@ -38,7 +38,7 @@ data class MqttConnectionConfiguration(
     val tlsClientCertAlias: String,
     val willTopic: String,
     val topicsToSubscribeTo: Set<String>,
-    val subQos: org.owntracks.android.preferences.types.MqttQos
+    val subQos: org.owntracks.android.preferences.types.MqttQos,
 ) : ConnectionConfiguration {
 
   @Throws(ConfigurationIncompleteException::class)
@@ -55,7 +55,7 @@ data class MqttConnectionConfiguration(
       context: Context,
       caKeyStore: KeyStore,
       connectedListener: MqttClientConnectedListener,
-      disconnectedListener: MqttClientDisconnectedListener
+      disconnectedListener: MqttClientDisconnectedListener,
   ): Mqtt3AsyncClient {
     val builder =
         MqttClient.builder()
@@ -70,7 +70,12 @@ data class MqttConnectionConfiguration(
     if (tls) {
       builder.sslConfig(
           buildMqttSslConfig(
-              context, caKeyStore, tlsClientCertAlias, timeout.inWholeSeconds.toInt()))
+              context,
+              caKeyStore,
+              tlsClientCertAlias,
+              timeout.inWholeSeconds.toInt(),
+          )
+      )
     }
     if (ws) {
       // TLS + WebSocket composes to wss. The server path defaults to /mqtt (configurable).
@@ -131,11 +136,13 @@ fun Preferences.toMqttConnectionConfiguration(): MqttConnectionConfiguration =
                 subTopic + infoTopicSuffix,
                 subTopic + eventTopicSuffix,
                 subTopic + statusTopicSuffix,
-                receivedCommandsTopic)
+                receivedCommandsTopic,
+            )
           } else {
             sortedSetOf(subTopic, subTopic + eventTopicSuffix, receivedCommandsTopic)
           }
         } else {
           sortedSetOf(subTopic)
         },
-        subQos)
+        subQos,
+    )

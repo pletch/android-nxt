@@ -169,60 +169,63 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
    * locator is actually delivering fixes. Under Doze (or any other suppression of the DEFAULT
    * stream) no fixes arrive at all, so "no vehicular speed seen" says nothing about whether the
    * drive ended — and reverting there tears the boost down mid-trip, exactly when it's needed.
-   * Worse, it's self-sustaining: the boost's two re-engagement paths are Activity Recognition
-   * (also suppressed in Doze) and GPS speed via [onDrivingLocationForTuning] (fed only by the
-   * stream that just went silent), so nothing restores the boost until the device wakes.
+   * Worse, it's self-sustaining: the boost's two re-engagement paths are Activity Recognition (also
+   * suppressed in Doze) and GPS speed via [onDrivingLocationForTuning] (fed only by the stream that
+   * just went silent), so nothing restores the boost until the device wakes.
    *
-   * So on firing, only treat the silence as evidence if the stream was alive during the window.
-   * If it was starved, wait out another window — up to [DRIVING_BOOST_MAX_STARVED_DEFERRALS], after
+   * So on firing, only treat the silence as evidence if the stream was alive during the window. If
+   * it was starved, wait out another window — up to [DRIVING_BOOST_MAX_STARVED_DEFERRALS], after
    * which we revert anyway rather than leave the boost pinned on indefinitely.
    */
   private fun armDrivingBoostWatchdog() {
     drivingBoostWatchdogJob?.cancel()
     starvedWatchdogDeferrals = 0
-    drivingBoostWatchdogJob =
-        lifecycleScope.launch {
-          while (true) {
-            val armedAt = SystemClock.elapsedRealtime()
-            delay(DRIVING_BOOST_WATCHDOG_TIMEOUT)
-            if (!preferences.locatorBoostedByDriving) return@launch
+    drivingBoostWatchdogJob = lifecycleScope.launch {
+      while (true) {
+        val armedAt = SystemClock.elapsedRealtime()
+        delay(DRIVING_BOOST_WATCHDOG_TIMEOUT)
+        if (!preferences.locatorBoostedByDriving) return@launch
 
-            // A fix arriving after we armed means the locator was in a position to report
-            // vehicular speed and didn't, so the silence is real evidence the drive ended.
-            val streamWasAlive = lastDefaultStreamFixElapsedRealtime > armedAt
-            val outOfDeferrals = starvedWatchdogDeferrals >= DRIVING_BOOST_MAX_STARVED_DEFERRALS
-            if (streamWasAlive || outOfDeferrals) {
-              val reason =
-                  if (streamWasAlive) "location stream was live"
-                  else "location stream starved throughout, deferral limit reached"
-              Timber.w(
-                  "No driving confirmation for $DRIVING_BOOST_WATCHDOG_TIMEOUT ($reason); " +
-                      "reverting driving boost as a safety backstop")
-              revertDrivingBoost(clearAutomotiveActivity = true)
-              return@launch
-            }
-
-            starvedWatchdogDeferrals++
-            Timber.w(
-                "No driving confirmation for $DRIVING_BOOST_WATCHDOG_TIMEOUT, but no location " +
-                    "fixes arrived either (stream starved, e.g. Doze); deferring driving-boost " +
-                    "revert ($starvedWatchdogDeferrals/$DRIVING_BOOST_MAX_STARVED_DEFERRALS)")
-          }
+        // A fix arriving after we armed means the locator was in a position to report
+        // vehicular speed and didn't, so the silence is real evidence the drive ended.
+        val streamWasAlive = lastDefaultStreamFixElapsedRealtime > armedAt
+        val outOfDeferrals = starvedWatchdogDeferrals >= DRIVING_BOOST_MAX_STARVED_DEFERRALS
+        if (streamWasAlive || outOfDeferrals) {
+          val reason =
+              if (streamWasAlive) "location stream was live"
+              else "location stream starved throughout, deferral limit reached"
+          Timber.w(
+              "No driving confirmation for $DRIVING_BOOST_WATCHDOG_TIMEOUT ($reason); " +
+                  "reverting driving boost as a safety backstop"
+          )
+          revertDrivingBoost(clearAutomotiveActivity = true)
+          return@launch
         }
+
+        starvedWatchdogDeferrals++
+        Timber.w(
+            "No driving confirmation for $DRIVING_BOOST_WATCHDOG_TIMEOUT, but no location " +
+                "fixes arrived either (stream starved, e.g. Doze); deferring driving-boost " +
+                "revert ($starvedWatchdogDeferrals/$DRIVING_BOOST_MAX_STARVED_DEFERRALS)"
+        )
+      }
+    }
   }
 
   /**
    * Force-reverts an active driving boost outside the normal speed-drop exit path (watchdog fire,
    * feature toggled off). With [clearAutomotiveActivity], also clears a published "automotive"
-   * motionactivities: when the boost was engaged from GPS speed, Activity Recognition never saw
-   * the vehicle and will emit no exit transition to overwrite it — without this the last fix
-   * keeps re-publishing "automotive" long after the drive ended (the same staleness the normal
-   * exit path guards against).
+   * motionactivities: when the boost was engaged from GPS speed, Activity Recognition never saw the
+   * vehicle and will emit no exit transition to overwrite it — without this the last fix keeps
+   * re-publishing "automotive" long after the drive ended (the same staleness the normal exit path
+   * guards against).
    */
   private fun revertDrivingBoost(clearAutomotiveActivity: Boolean) {
-    if (clearAutomotiveActivity &&
-        locationRepo.currentMotionActivities ==
-            DetectedActivityChange.IN_VEHICLE.toMotionActivities()) {
+    if (
+        clearAutomotiveActivity &&
+            locationRepo.currentMotionActivities ==
+                DetectedActivityChange.IN_VEHICLE.toMotionActivities()
+    ) {
       locationRepo.currentMotionActivities = DetectedActivityChange.STILL.toMotionActivities()
     }
     speedIndicatesDriving = false
@@ -242,7 +245,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
                 // Only the continuous DEFAULT stream feeds the driving speed-tiering.
                 onLocation =
                     if (it == MessageLocation.ReportType.DEFAULT) ::onDrivingLocationForTuning
-                    else { _ -> })
+                    else { _ -> },
+            )
           }
         }
       }
@@ -273,7 +277,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       if (newInterval != currentDrivingIntervalSeconds) {
         Timber.d(
             "Driving speed ${"%.0f".format(speedKmh)} km/h; " +
-                "re-tuning interval ${currentDrivingIntervalSeconds}s -> ${newInterval}s")
+                "re-tuning interval ${currentDrivingIntervalSeconds}s -> ${newInterval}s"
+        )
         currentDrivingIntervalSeconds = newInterval
         setupLocationRequest()
       }
@@ -308,7 +313,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       Timber.i(
           "GPS speed ${"%.0f".format(speedKmh)} km/h indicates driving; engaging driving boost " +
               if (overridingOnFoot) "(overriding on-foot boost)"
-              else "(Activity Recognition reported no vehicle transition)")
+              else "(Activity Recognition reported no vehicle transition)"
+      )
       speedIndicatesDriving = true
       currentDrivingIntervalSeconds =
           DrivingSpeedTier.intervalSecondsForSpeed(speedKmh, currentDrivingIntervalSeconds)
@@ -320,7 +326,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       // cycling boost, leave that alone (AR owns it).
       if (preferences.locatorBoostedByDriving) {
         Timber.i(
-            "GPS speed ${"%.0f".format(speedKmh)} km/h indicates a stop; arming driving-boost revert")
+            "GPS speed ${"%.0f".format(speedKmh)} km/h indicates a stop; arming driving-boost revert"
+        )
         // Clear the speed-engaged "automotive" so published motionactivities doesn't go stale: we
         // engaged driving from GPS speed because AR never saw us enter the vehicle, so AR will emit
         // no exit transition to overwrite it — without this the last fix keeps re-publishing
@@ -376,15 +383,19 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     endpointStateRepo = entrypoint.endpointStateRepo()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       Timber.i(
-          "Permissions. ACCESS_BACKGROUND_LOCATION: ${ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION)==PERMISSION_GRANTED}")
+          "Permissions. ACCESS_BACKGROUND_LOCATION: ${ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION)==PERMISSION_GRANTED}"
+      )
     }
     Timber.i(
-        "Permissions. ACCESS_COARSE_LOCATION: ${ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)==PERMISSION_GRANTED}")
+        "Permissions. ACCESS_COARSE_LOCATION: ${ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)==PERMISSION_GRANTED}"
+    )
     Timber.i(
-        "Permissions. ACCESS_FINE_LOCATION: ${ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)==PERMISSION_GRANTED}")
+        "Permissions. ACCESS_FINE_LOCATION: ${ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)==PERMISSION_GRANTED}"
+    )
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       Timber.i(
-          "Permissions. POST_NOTIFICATIONS: ${ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)==PERMISSION_GRANTED}")
+          "Permissions. POST_NOTIFICATIONS: ${ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)==PERMISSION_GRANTED}"
+      )
     }
 
     super.onCreate()
@@ -406,7 +417,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             locationProviderClient,
             requirementsChecker,
             callbackForReportType[MessageLocation.ReportType.SIGNIFICANT_MOTION]!!.value,
-            runThingsOnOtherThreads.getBackgroundLooper())
+            runThingsOnOtherThreads.getBackgroundLooper(),
+        )
 
     registerReceiver(
         powerBroadcastReceiver,
@@ -418,7 +430,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
           }
           addAction(Intent.ACTION_SCREEN_ON)
           addAction(Intent.ACTION_SCREEN_OFF)
-        })
+        },
+    )
     powerStateLogger.logPowerState("serviceOnCreate")
 
     lifecycleScope.launch {
@@ -458,7 +471,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             ongoingNotification.setEndpointState(
                 it,
                 if (preferences.mode == ConnectionMode.MQTT) preferences.host
-                else preferences.url.toHttpUrlOrNull()?.host ?: "")
+                else preferences.url.toHttpUrlOrNull()?.host ?: "",
+            )
           }
         }
         launch {
@@ -530,7 +544,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       alarmManager.setAndAllowWhileIdle(
           AlarmManager.ELAPSED_REALTIME_WAKEUP,
           SystemClock.elapsedRealtime() + TASK_REMOVED_RESTART_DELAY.inWholeMilliseconds,
-          restartAfterTaskRemovedIntent())
+          restartAfterTaskRemovedIntent(),
+      )
     } catch (e: Exception) {
       // Nothing here is worth taking the process down for on the way out.
       Timber.e(e, "Unable to schedule a service restart after task removal")
@@ -548,7 +563,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
           .let {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
               PendingIntent.getForegroundService(
-                  applicationContext, 0, it, UPDATE_CURRENT_INTENT_FLAGS)
+                  applicationContext,
+                  0,
+                  it,
+                  UPDATE_CURRENT_INTENT_FLAGS,
+              )
             } else {
               PendingIntent.getService(applicationContext, 0, it, UPDATE_CURRENT_INTENT_FLAGS)
             }
@@ -569,7 +588,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             if (requirementsChecker.hasLocationPermissions()) {
               locationProviderClient.singleHighAccuracyLocation(
                   callbackForReportType[MessageLocation.ReportType.USER]!!.value,
-                  runThingsOnOtherThreads.getBackgroundLooper())
+                  runThingsOnOtherThreads.getBackgroundLooper(),
+              )
             }
           }
           return
@@ -636,8 +656,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         INTENT_ACTION_BOOT_COMPLETED,
         INTENT_ACTION_PACKAGE_REPLACED -> {
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (!requirementsChecker.hasBackgroundLocationPermission() &&
-                !hasBeenStartedExplicitly) {
+            if (
+                !requirementsChecker.hasBackgroundLocationPermission() && !hasBeenStartedExplicitly
+            ) {
               notifyUserOfBackgroundLocationRestriction()
             }
           }
@@ -648,7 +669,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       }
     } else {
       Timber.d(
-          "no intent or action provided, setting up location request and scheduling location ping.")
+          "no intent or action provided, setting up location request and scheduling location ping."
+      )
       hasBeenStartedExplicitly = true
       setupAndStartService()
     }
@@ -660,18 +682,21 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         startForeground(
             NOTIFICATION_ID_ONGOING,
             ongoingNotification.getNotification(),
-            FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+        )
       } catch (e: ForegroundServiceStartNotAllowedException) {
         Timber.e(
             e,
-            "Foreground service start not allowed. backgroundRestricted=${activityManager.isBackgroundRestricted}")
+            "Foreground service start not allowed. backgroundRestricted=${activityManager.isBackgroundRestricted}",
+        )
         return
       }
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       startForeground(
           NOTIFICATION_ID_ONGOING,
           ongoingNotification.getNotification(),
-          FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+          FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+      )
     } else {
       startForeground(NOTIFICATION_ID_ONGOING, ongoingNotification.getNotification())
     }
@@ -716,7 +741,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     if (!requirementsChecker.hasActivityRecognitionPermission()) {
       if (preferences.autoMonitoringByActivity) {
         Timber.i(
-            "Activity-based adaptive monitoring is enabled but the ACTIVITY_RECOGNITION permission is not granted")
+            "Activity-based adaptive monitoring is enabled but the ACTIVITY_RECOGNITION permission is not granted"
+        )
       }
       return
     }
@@ -725,7 +751,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         Timber.d("Activity transition updates already registered; skipping")
       } else {
         Timber.d(
-            "Activity-based adaptive monitoring enabled; requesting activity transition updates")
+            "Activity-based adaptive monitoring enabled; requesting activity transition updates"
+        )
         // Set optimistically so repeated setup calls don't stack duplicate in-flight requests;
         // reset on async failure so the next service start retries instead of believing a dead
         // registration is alive forever.
@@ -741,8 +768,10 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
   }
 
   private fun notifyUserOfBackgroundLocationRestriction() {
-    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-        PackageManager.PERMISSION_GRANTED) {
+    if (
+        ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+    ) {
       return
     }
     val activityLaunchIntent =
@@ -754,7 +783,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     val notificationTitle = getString(R.string.backgroundLocationRestrictionNotificationTitle)
     val notification =
         NotificationCompat.Builder(
-                applicationContext, GeocoderProvider.ERROR_NOTIFICATION_CHANNEL_ID)
+                applicationContext,
+                GeocoderProvider.ERROR_NOTIFICATION_CHANNEL_ID,
+            )
             .setContentTitle(notificationTitle)
             .setContentText(notificationText)
             .setAutoCancel(true)
@@ -762,19 +793,29 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             .setStyle(NotificationCompat.BigTextStyle().bigText(notificationText))
             .setContentIntent(
                 PendingIntent.getActivity(
-                    applicationContext, 0, activityLaunchIntent, UPDATE_CURRENT_INTENT_FLAGS))
+                    applicationContext,
+                    0,
+                    activityLaunchIntent,
+                    UPDATE_CURRENT_INTENT_FLAGS,
+                )
+            )
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setSilent(true)
             .build()
     notificationManagerCompat.notify(
-        BACKGROUND_LOCATION_RESTRICTION_NOTIFICATION_TAG, 0, notification)
+        BACKGROUND_LOCATION_RESTRICTION_NOTIFICATION_TAG,
+        0,
+        notification,
+    )
   }
 
   fun sendEventNotification(message: MessageTransition) {
     Timber.d("Sending event notification for $message")
-    if (!preferences.notificationEvents ||
-        ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED) {
+    if (
+        !preferences.notificationEvents ||
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+    ) {
       return
     }
     val contact = contactsRepo.getById(message.getContactId())
@@ -787,7 +828,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
               R.string.transitionEntering
             } else {
               R.string.transitionLeaving
-            })
+            }
+        )
     val eventText = "$transitionText $location"
     val whenStr = formatDate(timestampInMs)
     // Need to lock to prevent "clear()" being called while we're adding to it
@@ -799,14 +841,17 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
                     StyleSpan(Typeface.BOLD),
                     0,
                     whenStr.length + 1,
-                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-              })
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+              }
+          )
           Timber.v("groupedNotifications: ${activeNotifications.size}")
           val summary =
               resources.getQuantityString(
                   R.plurals.notificationEventsTitle,
                   activeNotifications.size,
-                  activeNotifications.size)
+                  activeNotifications.size,
+              )
           val inbox = NotificationCompat.InboxStyle().setSummaryText(summary)
           activeNotifications.forEach { inbox.addLine(it) }
           Pair(summary, inbox)
@@ -832,14 +877,18 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
                 this,
                 System.currentTimeMillis().toInt() / 1000,
                 Intent(this, MapActivity::class.java),
-                UPDATE_CURRENT_INTENT_FLAGS))
+                UPDATE_CURRENT_INTENT_FLAGS,
+            )
+        )
         .setDeleteIntent(
             PendingIntent.getService(
                 this,
                 1,
                 Intent(this, BackgroundService::class.java)
                     .setAction(INTENT_ACTION_CLEAR_NOTIFICATIONS),
-                UPDATE_CURRENT_INTENT_FLAGS))
+                UPDATE_CURRENT_INTENT_FLAGS,
+            )
+        )
         .build()
         .run {
           notificationManagerCompat
@@ -858,9 +907,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       Timber.e("geofencingEvent hasError: ${event.errorCode}")
       return
     }
-    if (event.geofenceTransition == null ||
-        event.triggeringGeofences == null ||
-        event.triggeringLocation == null) {
+    if (
+        event.geofenceTransition == null ||
+            event.triggeringGeofences == null ||
+            event.triggeringLocation == null
+    ) {
       Timber.e("geofencingEvent has no transition or trigger")
       return
     }
@@ -872,7 +923,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
           waypointsRepo.get(requestId.toLong())?.run {
             Timber.d("onWaypointTransition triggered by geofencing event")
             locationProcessor.onWaypointTransition(
-                this, event.triggeringLocation, transition, MessageTransition.TRIGGER_CIRCULAR)
+                this,
+                event.triggeringLocation,
+                transition,
+                MessageTransition.TRIGGER_CIRCULAR,
+            )
           } ?: run { Timber.e("waypoint id $requestId not found for geofence event") }
         } catch (e: NumberFormatException) {
           Timber.e("$requestId from Geofencing event is not a valid request id")
@@ -885,7 +940,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     if (requirementsChecker.hasLocationPermissions()) {
       Timber.d("On demand location request")
       locationProviderClient.singleHighAccuracyLocation(
-          callbackForReportType[reportType]!!.value, runThingsOnOtherThreads.getBackgroundLooper())
+          callbackForReportType[reportType]!!.value,
+          runThingsOnOtherThreads.getBackgroundLooper(),
+      )
     } else {
       Timber.e("missing location permission")
     }
@@ -911,7 +968,9 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       locationRepo.currentMotionActivities = change.toMotionActivities()
       // When driving boost is off, treat getting in a vehicle like becoming still (revert).
       val effective =
-          if (change == DetectedActivityChange.IN_VEHICLE && !preferences.boostLocatorWhileDriving) {
+          if (
+              change == DetectedActivityChange.IN_VEHICLE && !preferences.boostLocatorWhileDriving
+          ) {
             DetectedActivityChange.STILL
           } else {
             change
@@ -941,7 +1000,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
               // QPR1 (where balanced-accuracy stopped using GNSS, per #2155) isn't separately
               // detectable from the Android 16 GA release, so we gate on Android 16+ generally.
               Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
-                  preferences.useGNSSInSignificantMonitoringMode)
+                  preferences.useGNSSInSignificantMonitoringMode,
+          )
       val interval = Duration.ofSeconds(settings.intervalSeconds.toLong())
       val smallestDisplacement = settings.smallestDisplacement?.toFloat()
       val priority = settings.priority
@@ -949,21 +1009,30 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       // than
       // sampling continuously to evaluate displacement.
       val fastestInterval =
-          if (preferences.pegLocatorFastestIntervalToInterval ||
-              preferences.locatorBoostedByDriving) {
+          if (
+              preferences.pegLocatorFastestIntervalToInterval || preferences.locatorBoostedByDriving
+          ) {
             interval
           } else {
             Duration.ofSeconds(1)
           }
       val request =
           LocationRequest(
-              fastestInterval, smallestDisplacement, null, null, priority, interval, null)
+              fastestInterval,
+              smallestDisplacement,
+              null,
+              null,
+              priority,
+              interval,
+              null,
+          )
       Timber.d("location update request params: $request")
       locationProviderClient.flushLocations()
       locationProviderClient.requestLocationUpdates(
           request,
           callbackForReportType[MessageLocation.ReportType.DEFAULT]!!.value,
-          runThingsOnOtherThreads.getBackgroundLooper())
+          runThingsOnOtherThreads.getBackgroundLooper(),
+      )
       // A second registration for the same request, delivered by PendingIntent instead of to the
       // callback above. Identical parameters, so the provider merges the two and the fixes cost
       // nothing extra — but this one is held outside our process and survives it dying, which the
@@ -992,7 +1061,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
                       it.geofenceLongitude,
                       it.geofenceRadius.toFloat(),
                       Geofence.NEVER_EXPIRE,
-                      null)
+                      null,
+                  )
                 }
                 .toList()
         geofencingClient.removeGeofences(this@BackgroundService)
@@ -1018,7 +1088,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
           .run(ongoingNotification::setTitle)
     } else {
       Timber.v(
-          "Ignoring reverse geocode for $latLng: $reverseGeocodedText, because my lastPublished location is ${lastLocation?.toLatLng()}")
+          "Ignoring reverse geocode for $latLng: $reverseGeocodedText, because my lastPublished location is ${lastLocation?.toLatLng()}"
+      )
     }
   }
 
@@ -1035,12 +1106,15 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             Preferences::locatorBoostedByDriving.name,
             Preferences::activityOnFootLocatorInterval.name,
             Preferences::activityOnFootLocatorDisplacement.name,
-            Preferences::useGNSSInSignificantMonitoringMode.name)
-    if (propertiesWeCareAbout
-        .stream()
-        .filter { o: String -> properties.contains(o) }
-        .collect(Collectors.toSet())
-        .isNotEmpty()) {
+            Preferences::useGNSSInSignificantMonitoringMode.name,
+        )
+    if (
+        propertiesWeCareAbout
+            .stream()
+            .filter { o: String -> properties.contains(o) }
+            .collect(Collectors.toSet())
+            .isNotEmpty()
+    ) {
       Timber.d("locator preferences changed. Resetting location request.")
       setupLocationRequest()
     }
@@ -1057,8 +1131,10 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
         consecutiveDrivingSpeedFixes = 0
       }
     }
-    if (properties.contains(Preferences::boostLocatorWhileDriving.name) &&
-        !preferences.boostLocatorWhileDriving) {
+    if (
+        properties.contains(Preferences::boostLocatorWhileDriving.name) &&
+            !preferences.boostLocatorWhileDriving
+    ) {
       // Otherwise a boost engaged via the GPS-speed backup path (see onDrivingLocationForTuning)
       // would stay stuck on until Activity Recognition happens to report STILL, ignoring the
       // toggle for the rest of the trip. Only a speed-engaged "automotive" is cleared: we may
@@ -1070,8 +1146,11 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
     }
     if (properties.contains(Preferences::experimentalFeatures.name)) {
       // Handle significant motion sensor based on experimental feature toggle
-      if (preferences.experimentalFeatures.contains(
-          Preferences.EXPERIMENTAL_FEATURE_REQUEST_LOCATION_ON_SIGNIFICANT_MOTION)) {
+      if (
+          preferences.experimentalFeatures.contains(
+              Preferences.EXPERIMENTAL_FEATURE_REQUEST_LOCATION_ON_SIGNIFICANT_MOTION
+          )
+      ) {
         Timber.d("Significant motion feature enabled, setting up sensor")
         significantMotionSensor.setup()
       } else {
@@ -1094,7 +1173,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
             }
           }
         },
-        0)
+        0,
+    )
   }
 
   private val localServiceBinder: IBinder = LocalBinder()
@@ -1153,7 +1233,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
               PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             } else {
               PendingIntent.FLAG_UPDATE_CURRENT
-            })
+            },
+        )
 
     private const val LOCATION_WAKEUP_REQUEST_CODE = 2
 
@@ -1171,7 +1252,7 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
       private val reportType: MessageLocation.ReportType,
       private val locationProcessor: LocationProcessor,
       private val lifecycleCoroutineScope: LifecycleCoroutineScope,
-      private val onLocation: (Location) -> Unit = {}
+      private val onLocation: (Location) -> Unit = {},
   ) : LocationCallback {
 
     override fun onLocationAvailability(locationAvailability: LocationAvailability) {
@@ -1221,7 +1302,8 @@ class BackgroundService : LifecycleService(), Preferences.OnPreferenceChangeList
                 lightIdle +
                 "isInteractive=${powerManager.isInteractive} " +
                 "isIgnoringBatteryOptimizations=" +
-                "${powerManager.isIgnoringBatteryOptimizations(applicationContext.packageName)}")
+                "${powerManager.isIgnoringBatteryOptimizations(applicationContext.packageName)}"
+        )
       }
     }
   }

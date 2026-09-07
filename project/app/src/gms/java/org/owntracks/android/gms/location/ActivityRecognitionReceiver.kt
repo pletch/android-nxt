@@ -38,7 +38,8 @@ class ActivityRecognitionReceiver : BroadcastReceiver(), ServiceStarter by Servi
     result.transitionEvents.forEach { event ->
       Timber.i(
           "Activity transition: ${activityName(event.activityType)} " +
-              "${transitionName(event.transitionType)} (elapsedRealtime=${event.elapsedRealTimeNanos}ns)")
+              "${transitionName(event.transitionType)} (elapsedRealtime=${event.elapsedRealTimeNanos}ns)"
+      )
       if (event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER) {
         activityChange(event.activityType)?.let { changeOrdinals.add(it.ordinal) }
       }
@@ -58,7 +59,8 @@ class ActivityRecognitionReceiver : BroadcastReceiver(), ServiceStarter by Servi
     val mostProbable = result.mostProbableActivity
     Timber.i(
         "Current-activity sample: ${activityName(mostProbable.type)} " +
-            "(confidence=${mostProbable.confidence})")
+            "(confidence=${mostProbable.confidence})"
+    )
     if (mostProbable.confidence < MIN_SAMPLE_CONFIDENCE) {
       Timber.d("Current-activity sample below confidence threshold; not seeding")
       return
@@ -85,7 +87,8 @@ class ActivityRecognitionReceiver : BroadcastReceiver(), ServiceStarter by Servi
         startService(
             context,
             BackgroundService.INTENT_ACTION_ACTIVITY_TRANSITION,
-            Intent().putExtra(BackgroundService.EXTRA_ACTIVITY_CHANGE_ORDINALS, ordinals))
+            Intent().putExtra(BackgroundService.EXTRA_ACTIVITY_CHANGE_ORDINALS, ordinals),
+        )
     if (!started) {
       Timber.i("Could not start the service for an activity change; deferring it to WorkManager")
       EarlyEntryPoints.get(context.applicationContext, BaseApp.ApplicationEntrypoint::class.java)

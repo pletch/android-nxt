@@ -80,7 +80,8 @@ class LocationProcessorTest {
     // 800m in 60s = 48 km/h, well under the quarantine distance
     assertEquals(
         JumpGateDecision.PUBLISH,
-        evaluateJumpGate(800f, 60.0, null, null, maxSpeedKmh = 1000))
+        evaluateJumpGate(800f, 60.0, null, null, maxSpeedKmh = 1000),
+    )
   }
 
   @Test
@@ -88,7 +89,8 @@ class LocationProcessorTest {
     // 50km in 5s: implausible at any setting
     assertEquals(
         JumpGateDecision.WITHHOLD,
-        evaluateJumpGate(50_000f, 5.0, null, null, maxSpeedKmh = 1000))
+        evaluateJumpGate(50_000f, 5.0, null, null, maxSpeedKmh = 1000),
+    )
   }
 
   @Test
@@ -97,7 +99,8 @@ class LocationProcessorTest {
     // first post-gap fix is disproportionately likely to be a network bounce — hold it.
     assertEquals(
         JumpGateDecision.WITHHOLD,
-        evaluateJumpGate(50_000f, 3600.0, null, null, maxSpeedKmh = 1000))
+        evaluateJumpGate(50_000f, 3600.0, null, null, maxSpeedKmh = 1000),
+    )
   }
 
   @Test
@@ -105,7 +108,8 @@ class LocationProcessorTest {
     // 4km after an hour: under QUARANTINE_DISTANCE_METRES, no corroboration needed
     assertEquals(
         JumpGateDecision.PUBLISH,
-        evaluateJumpGate(4_000f, 3600.0, null, null, maxSpeedKmh = 1000))
+        evaluateJumpGate(4_000f, 3600.0, null, null, maxSpeedKmh = 1000),
+    )
   }
 
   @Test
@@ -113,7 +117,8 @@ class LocationProcessorTest {
     // Still ~50km from the anchor, but only 100m in 30s from the withheld fix: the move is real.
     assertEquals(
         JumpGateDecision.PUBLISH_CORROBORATED,
-        evaluateJumpGate(50_000f, 3630.0, 100f, 30.0, maxSpeedKmh = 1000))
+        evaluateJumpGate(50_000f, 3630.0, 100f, 30.0, maxSpeedKmh = 1000),
+    )
   }
 
   @Test
@@ -122,7 +127,8 @@ class LocationProcessorTest {
     // It publishes normally and the withheld state is dropped by the caller.
     assertEquals(
         JumpGateDecision.PUBLISH,
-        evaluateJumpGate(120f, 3630.0, 50_000f, 30.0, maxSpeedKmh = 1000))
+        evaluateJumpGate(120f, 3630.0, 50_000f, 30.0, maxSpeedKmh = 1000),
+    )
   }
 
   @Test
@@ -131,14 +137,16 @@ class LocationProcessorTest {
     // it, but agree with each other — accept instead of locking on.
     assertEquals(
         JumpGateDecision.PUBLISH_CORROBORATED,
-        evaluateJumpGate(50_000f, 65.0, 90f, 60.0, maxSpeedKmh = 1000))
+        evaluateJumpGate(50_000f, 65.0, 90f, 60.0, maxSpeedKmh = 1000),
+    )
   }
 
   @Test
   fun `zero maxSpeedKmh disables the jump gate entirely`() {
     assertEquals(
         JumpGateDecision.PUBLISH,
-        evaluateJumpGate(50_000f, 5.0, null, null, maxSpeedKmh = 0))
+        evaluateJumpGate(50_000f, 5.0, null, null, maxSpeedKmh = 0),
+    )
   }
 
   // On-foot tightening. Values below are taken from a real walk that produced ~190m spikes
@@ -151,8 +159,15 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.WITHHOLD,
         evaluateJumpGate(
-            190f, 25.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
-            onFootMinJumpMetres = 100f))
+            190f,
+            25.0,
+            null,
+            null,
+            maxSpeedKmh = 1000,
+            onFootMaxSpeedKmh = 19,
+            onFootMinJumpMetres = 100f,
+        ),
+    )
   }
 
   @Test
@@ -160,7 +175,8 @@ class LocationProcessorTest {
     // Driving, or any non-boosted mode: onFootMaxSpeedKmh is passed as 0 and nothing changes.
     assertEquals(
         JumpGateDecision.PUBLISH,
-        evaluateJumpGate(190f, 25.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 0))
+        evaluateJumpGate(190f, 25.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 0),
+    )
   }
 
   @Test
@@ -170,8 +186,15 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.PUBLISH,
         evaluateJumpGate(
-            88f, 28.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
-            onFootMinJumpMetres = 100f))
+            88f,
+            28.0,
+            null,
+            null,
+            maxSpeedKmh = 1000,
+            onFootMaxSpeedKmh = 19,
+            onFootMinJumpMetres = 100f,
+        ),
+    )
   }
 
   @Test
@@ -181,8 +204,15 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.PUBLISH,
         evaluateJumpGate(
-            40f, 3.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
-            onFootMinJumpMetres = 100f))
+            40f,
+            3.0,
+            null,
+            null,
+            maxSpeedKmh = 1000,
+            onFootMaxSpeedKmh = 19,
+            onFootMinJumpMetres = 100f,
+        ),
+    )
   }
 
   @Test
@@ -193,8 +223,15 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.PUBLISH,
         evaluateJumpGate(
-            500f, 240.0, null, null, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
-            onFootMinJumpMetres = 100f))
+            500f,
+            240.0,
+            null,
+            null,
+            maxSpeedKmh = 1000,
+            onFootMaxSpeedKmh = 19,
+            onFootMinJumpMetres = 100f,
+        ),
+    )
   }
 
   @Test
@@ -204,8 +241,15 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.WITHHOLD,
         evaluateJumpGate(
-            190f, 25.0, 150f, 25.0, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
-            onFootMinJumpMetres = 100f))
+            190f,
+            25.0,
+            150f,
+            25.0,
+            maxSpeedKmh = 1000,
+            onFootMaxSpeedKmh = 19,
+            onFootMinJumpMetres = 100f,
+        ),
+    )
   }
 
   @Test
@@ -215,8 +259,15 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.PUBLISH_CORROBORATED,
         evaluateJumpGate(
-            190f, 25.0, 30f, 25.0, maxSpeedKmh = 1000, onFootMaxSpeedKmh = 19,
-            onFootMinJumpMetres = 100f))
+            190f,
+            25.0,
+            30f,
+            25.0,
+            maxSpeedKmh = 1000,
+            onFootMaxSpeedKmh = 19,
+            onFootMinJumpMetres = 100f,
+        ),
+    )
   }
 
   @Test
@@ -224,8 +275,15 @@ class LocationProcessorTest {
     assertEquals(
         JumpGateDecision.WITHHOLD,
         evaluateJumpGate(
-            190f, 25.0, null, null, maxSpeedKmh = 0, onFootMaxSpeedKmh = 19,
-            onFootMinJumpMetres = 100f))
+            190f,
+            25.0,
+            null,
+            null,
+            maxSpeedKmh = 0,
+            onFootMaxSpeedKmh = 19,
+            onFootMinJumpMetres = 100f,
+        ),
+    )
   }
 
   /** Regression test for https://github.com/owntracks/android/issues/2034 review follow-up. */
@@ -253,7 +311,8 @@ class LocationProcessorTest {
             Dispatchers.Unconfined,
             SimpleIdlingResource("publishResponseMessageIdlingResource", false),
             SimpleIdlingResource("mockLocationIdlingResource", false),
-            false)
+            false,
+        )
 
     val firstLocation =
         mock<Location> {
@@ -277,12 +336,14 @@ class LocationProcessorTest {
     val captor = argumentCaptor<MessageBase>()
     verify(messageProcessor, times(2)).queueMessageForSending(captor.capture())
     assertEquals(
-        MessageLocation.ReportType.RESPONSE, (captor.secondValue as MessageLocation).trigger)
+        MessageLocation.ReportType.RESPONSE,
+        (captor.secondValue as MessageLocation).trigger,
+    )
   }
 
   private fun TestScope.buildLocationProcessor(
       messageProcessor: MessageProcessor,
-      discardThresholdSeconds: Int
+      discardThresholdSeconds: Int,
   ): LocationProcessor {
     val preferences =
         mock<Preferences> {
@@ -304,7 +365,8 @@ class LocationProcessorTest {
         Dispatchers.Unconfined,
         SimpleIdlingResource("publishResponseMessageIdlingResource", false),
         SimpleIdlingResource("mockLocationIdlingResource", false),
-        false)
+        false,
+    )
   }
 
   /**

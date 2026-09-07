@@ -89,16 +89,15 @@ class AdvancedFragment @Inject constructor() :
     val activityRecognitionAvailable = BuildConfig.FLAVOR == "gms"
     findPreference<SwitchPreferenceCompat>(Preferences::autoMonitoringByActivity.name)?.apply {
       isVisible = activityRecognitionAvailable
-      onPreferenceChangeListener =
-          Preference.OnPreferenceChangeListener { _, newValue ->
-            if (newValue == true && !requirementsChecker.hasActivityRecognitionPermission()) {
-              // Defer enabling until the permission is granted (see the granted callback).
-              activityRecognitionPermissionRequester.requestPermission()
-              false
-            } else {
-              true
-            }
-          }
+      onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, newValue ->
+        if (newValue == true && !requirementsChecker.hasActivityRecognitionPermission()) {
+          // Defer enabling until the permission is granted (see the granted callback).
+          activityRecognitionPermissionRequester.requestPermission()
+          false
+        } else {
+          true
+        }
+      }
     }
     listOf(
             Preferences::activityOnFootLocatorInterval.name,
@@ -113,7 +112,9 @@ class AdvancedFragment @Inject constructor() :
           // Re-request fine location; on API 31+ this offers the Precise/Approximate upgrade
           // dialog.
           locationPermissionRequester.requestLocationPermissions(
-              context = requireContext(), showPermissionRationale = { false })
+              context = requireContext(),
+              showPermissionRationale = { false },
+          )
           true
         }
     refreshActivityRecognitionPreciseWarning()
@@ -156,7 +157,8 @@ class AdvancedFragment @Inject constructor() :
     Toast.makeText(
             requireContext(),
             R.string.preferencesAutoMonitoringByActivityPermissionDenied,
-            Toast.LENGTH_LONG)
+            Toast.LENGTH_LONG,
+        )
         .show()
     // Permanently denied ("don't ask again", or a prior denial): the system won't prompt again,
     // so Settings is the only path left — same as the precise-location flow below.
@@ -168,7 +170,8 @@ class AdvancedFragment @Inject constructor() :
   private fun promptOpenAppSettingsForActivityRecognition() =
       promptOpenAppSettings(
           R.string.preferencesAutoMonitoringByActivityPermissionSettingsTitle,
-          R.string.preferencesAutoMonitoringByActivityPermissionSettingsMessage)
+          R.string.preferencesAutoMonitoringByActivityPermissionSettingsMessage,
+      )
 
   private fun setOpenCageAPIKeyPreferenceVisibility() {
     setOf(Preferences::opencageApiKey.name, "opencagePrivacy").forEach {
@@ -195,9 +198,11 @@ class AdvancedFragment @Inject constructor() :
   private fun onPreciseLocationRequestResult(@Suppress("UNUSED_PARAMETER") code: Int) {
     refreshActivityRecognitionPreciseWarning()
     // Precise still missing and the system won't prompt again: Settings is the only path left.
-    if (isAdded &&
-        !requirementsChecker.hasPreciseLocationPermission() &&
-        !shouldShowRequestPermissionRationale(ACCESS_FINE_LOCATION)) {
+    if (
+        isAdded &&
+            !requirementsChecker.hasPreciseLocationPermission() &&
+            !shouldShowRequestPermissionRationale(ACCESS_FINE_LOCATION)
+    ) {
       promptOpenAppSettingsForPreciseLocation()
     }
   }
@@ -205,7 +210,8 @@ class AdvancedFragment @Inject constructor() :
   private fun promptOpenAppSettingsForPreciseLocation() =
       promptOpenAppSettings(
           R.string.preferencesAutoMonitoringByActivityPreciseSettingsTitle,
-          R.string.preferencesAutoMonitoringByActivityPreciseSettingsMessage)
+          R.string.preferencesAutoMonitoringByActivityPreciseSettingsMessage,
+      )
 
   /** Last-resort path when a permission is permanently denied: send the user to app Settings. */
   private fun promptOpenAppSettings(@StringRes titleRes: Int, @StringRes messageRes: Int) {
@@ -218,7 +224,8 @@ class AdvancedFragment @Inject constructor() :
               Intent(ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = "package:${requireContext().packageName}".toUri()
                 flags = FLAG_ACTIVITY_NEW_TASK
-              })
+              }
+          )
         }
         .setNegativeButton(android.R.string.cancel, null)
         .show()

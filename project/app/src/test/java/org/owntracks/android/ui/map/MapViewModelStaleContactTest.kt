@@ -15,7 +15,9 @@ class MapViewModelStaleContactTest {
             locationTimestampSeconds = now - 10 * 86_400L,
             nowSeconds = now,
             hideEnabled = false,
-            thresholdDays = 2))
+            thresholdDays = 2,
+        )
+    )
   }
 
   @Test
@@ -25,7 +27,9 @@ class MapViewModelStaleContactTest {
             locationTimestampSeconds = now - (twoDays - 60),
             nowSeconds = now,
             hideEnabled = true,
-            thresholdDays = 2))
+            thresholdDays = 2,
+        )
+    )
   }
 
   @Test
@@ -35,19 +39,28 @@ class MapViewModelStaleContactTest {
             locationTimestampSeconds = now - (twoDays + 60),
             nowSeconds = now,
             hideEnabled = true,
-            thresholdDays = 2))
+            thresholdDays = 2,
+        )
+    )
   }
 
   @Test
   fun `not stale when timestamp is unknown or threshold is non-positive`() {
     assertFalse(
         MapViewModel.isLocationStale(
-            locationTimestampSeconds = 0, nowSeconds = now, hideEnabled = true, thresholdDays = 2))
+            locationTimestampSeconds = 0,
+            nowSeconds = now,
+            hideEnabled = true,
+            thresholdDays = 2,
+        )
+    )
     assertFalse(
         MapViewModel.isLocationStale(
             locationTimestampSeconds = now - 10 * 86_400L,
             nowSeconds = now,
             hideEnabled = true,
-            thresholdDays = 0))
+            thresholdDays = 0,
+        )
+    )
   }
 }

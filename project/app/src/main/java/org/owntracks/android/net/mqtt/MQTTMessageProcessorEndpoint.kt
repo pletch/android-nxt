@@ -15,11 +15,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.KeyStore
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.stream.Collectors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -62,7 +62,7 @@ class MQTTMessageProcessorEndpoint(
     @ApplicationScope private val scope: CoroutineScope,
     @CoroutineScopes.IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationContext private val applicationContext: Context,
-    private val mqttConnectionIdlingResource: SimpleIdlingResource
+    private val mqttConnectionIdlingResource: SimpleIdlingResource,
 ) :
     MessageProcessorEndpoint(messageProcessor),
     StatefulServiceMessageProcessor,
@@ -94,7 +94,8 @@ class MQTTMessageProcessorEndpoint(
           // self-schedules a retry) instead of only disconnecting, which previously left the client
           // stranded in DISCONNECTED if no further onAvailable arrived — e.g. a transient cellular
           // blip or a wifi→cell handoff while driving.
-          { scope.launch { reconnect() } })
+          { scope.launch { reconnect() } },
+      )
 
   override fun activate() {
     Timber.v("MQTT activate")
@@ -159,7 +160,8 @@ class MQTTMessageProcessorEndpoint(
                   Mqtt3Subscribe.builder()
                       .topicFilter(topic)
                       .qos(MqttQos.fromCode(config.subQos.value) ?: MqttQos.AT_LEAST_ONCE)
-                      .build())
+                      .build()
+              )
               .await(subscribeTimeout)
         }
         Timber.d("MQTT subscribed to ${config.topicsToSubscribeTo}")
@@ -173,27 +175,32 @@ class MQTTMessageProcessorEndpoint(
     }
   }
 
-  private fun disconnectedListenerFor(generation: Long) = MqttClientDisconnectedListener { context
-    ->
-    if (generation != currentClientGeneration) {
-      Timber.d(
-          "Ignoring disconnected callback from a superseded MQTT client (source=${context.source})")
-      return@MqttClientDisconnectedListener
-    }
-    Timber.w(context.cause, "MQTT disconnected (source=${context.source})")
-    scope.launch {
-      // Re-check at execution time: the scope is multi-threaded, so this launch can be dispatched
-      // arbitrarily late — after a newer client has already connected and set CONNECTED — and an
-      // unconditional DISCONNECTED here would strand the endpoint state while actually connected.
-      if (generation != currentClientGeneration) return@launch
-      endpointStateRepo.setState(EndpointState.DISCONNECTED)
-    }
-    // We own reconnection now that HiveMQ auto-reconnect is off. Schedule a reconnect for any drop
-    // or failed connect we didn't initiate ourselves (a USER source is our own disconnect()).
-    if (context.source != MqttDisconnectSource.USER) {
-      scheduler.scheduleMqttReconnect()
-    }
-  }
+  private fun disconnectedListenerFor(generation: Long) =
+      MqttClientDisconnectedListener { context ->
+        if (generation != currentClientGeneration) {
+          Timber.d(
+              "Ignoring disconnected callback from a superseded MQTT client (source=${context.source})"
+          )
+          return@MqttClientDisconnectedListener
+        }
+        Timber.w(context.cause, "MQTT disconnected (source=${context.source})")
+        scope.launch {
+          // Re-check at execution time: the scope is multi-threaded, so this launch can be
+          // dispatched
+          // arbitrarily late — after a newer client has already connected and set CONNECTED — and
+          // an
+          // unconditional DISCONNECTED here would strand the endpoint state while actually
+          // connected.
+          if (generation != currentClientGeneration) return@launch
+          endpointStateRepo.setState(EndpointState.DISCONNECTED)
+        }
+        // We own reconnection now that HiveMQ auto-reconnect is off. Schedule a reconnect for any
+        // drop
+        // or failed connect we didn't initiate ourselves (a USER source is our own disconnect()).
+        if (context.source != MqttDisconnectSource.USER) {
+          scheduler.scheduleMqttReconnect()
+        }
+      }
 
   private suspend fun connect(config: MqttConnectionConfiguration): Result<Unit> =
       connectingLock.withLock {
@@ -208,7 +215,8 @@ class MQTTMessageProcessorEndpoint(
                     applicationContext,
                     caKeyStore,
                     connectedListenerFor(generation),
-                    disconnectedListenerFor(generation))
+                    disconnectedListenerFor(generation),
+                )
               }
           client = newClient
           currentClientGeneration = generation
@@ -267,7 +275,8 @@ class MQTTMessageProcessorEndpoint(
     val payload = publish.payloadAsBytes
     if (payload.isEmpty()) {
       onMessageReceived(
-          MessageClear().apply { this.topic = topic.replace(MessageCard.BASETOPIC_SUFFIX, "") })
+          MessageClear().apply { this.topic = topic.replace(MessageCard.BASETOPIC_SUFFIX, "") }
+      )
     } else {
       try {
         onMessageReceived(
@@ -275,7 +284,8 @@ class MQTTMessageProcessorEndpoint(
               this.topic = topic
               this.retained = publish.isRetain
               this.qos = publish.qos.code
-            })
+            }
+        )
       } catch (e: Parser.EncryptionException) {
         Timber.e("Unable to decrypt received message on $topic")
       } catch (e: SerializationException) {
@@ -360,12 +370,15 @@ class MQTTMessageProcessorEndpoint(
             Preferences::password.name,
             Preferences::tls.name,
             Preferences::ws.name,
-            Preferences::wsPath.name)
-    if (propertiesWeWantToReconnectOn
-        .stream()
-        .filter(properties::contains)
-        .collect(Collectors.toSet())
-        .isNotEmpty()) {
+            Preferences::wsPath.name,
+        )
+    if (
+        propertiesWeWantToReconnectOn
+            .stream()
+            .filter(properties::contains)
+            .collect(Collectors.toSet())
+            .isNotEmpty()
+    ) {
       Timber.d("Reconnecting to broker because of preference change")
       scope.launch {
         try {
@@ -419,7 +432,8 @@ internal suspend fun <T> CompletableFuture<T>.await(timeout: Duration): T =
           futureTimeoutScheduler.schedule(
               { completeExceptionally(TimeoutException("Future not settled within $timeout")) },
               timeout.inWholeMilliseconds,
-              TimeUnit.MILLISECONDS)
+              TimeUnit.MILLISECONDS,
+          )
       whenComplete { value, error ->
         timeoutTask.cancel(false)
         if (error != null) cont.resumeWithException(error) else cont.resume(value)

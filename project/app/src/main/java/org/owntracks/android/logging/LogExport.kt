@@ -38,7 +38,7 @@ internal fun exportedSizeBytes(entries: List<LogEntry>, preamble: String = ""): 
 internal fun writeEntriesTo(
     outputStream: OutputStream,
     entries: List<LogEntry>,
-    preamble: String = ""
+    preamble: String = "",
 ) {
   val writer = outputStream.bufferedWriter()
   var anythingWritten = preamble.isNotEmpty()
