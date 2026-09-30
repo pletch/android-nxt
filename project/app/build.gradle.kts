@@ -62,10 +62,6 @@ android {
         localeCount.toString(),
     )
 
-    // Static shortcuts need an explicit target package, which has to track any
-    // applicationIdSuffix or the launcher resolves them to a package that isn't installed.
-    resValue("string", "shortcut_target_package", "org.owntracks.android")
-
     testInstrumentationRunner = "org.owntracks.android.testutils.hilt.CustomTestRunner"
 
     testInstrumentationRunnerArguments.putAll(
@@ -124,7 +120,6 @@ android {
       )
       resValue("string", "GOOGLE_MAPS_API_KEY", googleMapsAPIKey)
       applicationIdSuffix = ".debug"
-      resValue("string", "shortcut_target_package", "org.owntracks.android.debug")
       enableUnitTestCoverage = true
       enableAndroidTestCoverage = true
     }
