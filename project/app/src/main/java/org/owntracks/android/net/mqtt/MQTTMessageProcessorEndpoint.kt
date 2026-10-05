@@ -34,6 +34,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import org.owntracks.android.data.EndpointState
+import org.owntracks.android.data.EndpointStatus
 import org.owntracks.android.data.repos.EndpointStateRepo
 import org.owntracks.android.di.ApplicationScope
 import org.owntracks.android.di.CoroutineScopes
@@ -88,7 +89,7 @@ class MQTTMessageProcessorEndpoint(
 
   internal val networkChangeCallback =
       NetworkTrackingCallback(
-          { endpointStateRepo.endpointState.value },
+          { endpointStateRepo.endpointState.value.state },
           { scope.launch { reconnect() } },
           // Our network is gone: reconnect (binds to whatever's available now; a failed attempt
           // self-schedules a retry) instead of only disconnecting, which previously left the client
@@ -113,13 +114,36 @@ class MQTTMessageProcessorEndpoint(
       try {
         connect(getEndpointConfiguration())
       } catch (e: ConfigurationIncompleteException) {
-        Timber.e(e, "MQTT configuration not complete, cannot activate")
-        endpointStateRepo.setState(EndpointState.ERROR_CONFIGURATION.withError(e))
+        when (e.cause) {
+          is MqttConnectionConfiguration.MissingHostException ->
+              Timber.e("MQTT Configuration not complete because host is missing, cannot activate")
+          else -> Timber.e(e, "MQTT Configuration not complete, cannot activate")
+        }
+        setEndpointState(EndpointState.ERROR_CONFIGURATION.withError(e))
       }
     }
   }
 
+  /*
+  Set when this endpoint is replaced. It may still be winding down (an MQTT disconnect finishes
+  asynchronously) or get late callbacks, and none of that should overwrite the state of the endpoint
+  that replaced it.
+   */
+  @Volatile private var deactivated = false
+
+  private suspend fun setEndpointState(status: EndpointStatus) {
+    if (deactivated) {
+      Timber.v("Ignoring endpoint state $status from a deactivated endpoint")
+      return
+    }
+    endpointStateRepo.setState(status)
+  }
+
+  private suspend fun setEndpointState(state: EndpointState) =
+      setEndpointState(EndpointStatus(state))
+
   override fun deactivate() {
+    deactivated = true
     preferences.unregisterOnPreferenceChangedListener(this)
     try {
       connectivityManager.unregisterNetworkCallback(networkChangeCallback)
@@ -142,7 +166,7 @@ class MQTTMessageProcessorEndpoint(
         Timber.d("Ignoring connected callback from a superseded MQTT client")
         return@launch
       }
-      endpointStateRepo.setState(EndpointState.CONNECTED)
+      setEndpointState(EndpointState.CONNECTED)
       // This run of failures is over, so the next one starts from the short delay again rather than
       // inheriting however far this one had backed off.
       scheduler.resetMqttReconnectBackoff()
@@ -192,7 +216,7 @@ class MQTTMessageProcessorEndpoint(
           // unconditional DISCONNECTED here would strand the endpoint state while actually
           // connected.
           if (generation != currentClientGeneration) return@launch
-          endpointStateRepo.setState(EndpointState.DISCONNECTED)
+          setEndpointState(EndpointState.DISCONNECTED)
         }
         // We own reconnection now that HiveMQ auto-reconnect is off. Schedule a reconnect for any
         // drop
@@ -205,7 +229,7 @@ class MQTTMessageProcessorEndpoint(
   private suspend fun connect(config: MqttConnectionConfiguration): Result<Unit> =
       connectingLock.withLock {
         disconnect()
-        endpointStateRepo.setState(EndpointState.CONNECTING)
+        setEndpointState(EndpointState.CONNECTING)
         mqttConnectionIdlingResource.setIdleState(false)
         try {
           val generation = clientGeneration.incrementAndGet()
@@ -241,7 +265,7 @@ class MQTTMessageProcessorEndpoint(
           Result.success(Unit)
         } catch (e: Exception) {
           Timber.e(e, "MQTT client unable to connect to endpoint")
-          endpointStateRepo.setState(EndpointState.ERROR.withError(e))
+          setEndpointState(EndpointState.ERROR.withError(e))
           // No HiveMQ auto-reconnect, so schedule our own retry (deduped as unique work). A failed
           // CONNACK also fires disconnectedListener; both funnel to the same scheduled reconnect.
           scheduler.scheduleMqttReconnect()
@@ -266,7 +290,7 @@ class MQTTMessageProcessorEndpoint(
       }
     }
     client = null
-    endpointStateRepo.setState(EndpointState.DISCONNECTED)
+    setEndpointState(EndpointState.DISCONNECTED)
   }
 
   private fun onIncomingPublish(publish: Mqtt3Publish) {
@@ -305,7 +329,7 @@ class MQTTMessageProcessorEndpoint(
   override suspend fun sendMessage(message: MessageBase): Result<Unit> {
     Timber.d("Sending message $message")
     val c = client ?: return Result.failure(NotReadyException())
-    if (endpointStateRepo.endpointState.value != EndpointState.CONNECTED) {
+    if (endpointStateRepo.endpointState.value.state != EndpointState.CONNECTED) {
       // We have outbound work but aren't connected. Nudge a reconnect so a stranded DISCONNECTED
       // state — e.g. a network change whose recovery was missed — can't leave the queue backing
       // off forever with nothing trying to restore the connection. Expedited: a retry job parked
@@ -386,8 +410,8 @@ class MQTTMessageProcessorEndpoint(
         } catch (e: Exception) {
           when (e) {
             is ConfigurationIncompleteException ->
-                endpointStateRepo.setState(EndpointState.ERROR_CONFIGURATION.withError(e))
-            else -> endpointStateRepo.setState(EndpointState.ERROR.withError(e))
+                setEndpointState(EndpointState.ERROR_CONFIGURATION.withError(e))
+            else -> setEndpointState(EndpointState.ERROR.withError(e))
           }
         }
       }
@@ -401,7 +425,7 @@ class MQTTMessageProcessorEndpoint(
           getEndpointConfiguration()
         } catch (e: ConfigurationIncompleteException) {
           Timber.w("MQTT not configured, skipping reconnect: ${e.message}")
-          endpointStateRepo.setState(EndpointState.ERROR_CONFIGURATION.withError(e))
+          setEndpointState(EndpointState.ERROR_CONFIGURATION.withError(e))
           return Result.failure(e)
         }
     return connect(config)
