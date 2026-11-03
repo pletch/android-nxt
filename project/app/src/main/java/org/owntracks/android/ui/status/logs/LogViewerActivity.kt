@@ -3,27 +3,32 @@ package org.owntracks.android.ui.status.logs
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SearchView
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ShareCompat
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnPreDraw
+import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.databinding.DataBindingUtil
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.chip.Chip
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.divider.MaterialDividerItemDecoration
 import dagger.hilt.android.AndroidEntryPoint
 import kotlin.random.Random
 import kotlinx.coroutines.Job
@@ -66,12 +71,22 @@ class LogViewerActivity : AppCompatActivity() {
               // Handle window insets for edge-to-edge
               val fabBaseMarginBottom =
                   (shareFab.layoutParams as CoordinatorLayout.LayoutParams).bottomMargin
+              val jumpBaseMarginBottom =
+                  (jumpToLatest.layoutParams as CoordinatorLayout.LayoutParams).bottomMargin
+              val logsBasePaddingBottom = logsRecyclerView.paddingBottom
               ViewCompat.setOnApplyWindowInsetsListener(frame) { _, windowInsets ->
-                val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+                val insets =
+                    windowInsets.getInsets(
+                        WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime()
+                    )
                 appbar.root.updatePadding(top = insets.top)
                 shareFab.updateLayoutParams<CoordinatorLayout.LayoutParams> {
                   bottomMargin = fabBaseMarginBottom + insets.bottom
                 }
+                jumpToLatest.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+                  bottomMargin = jumpBaseMarginBottom + insets.bottom
+                }
+                logsRecyclerView.updatePadding(bottom = logsBasePaddingBottom + insets.bottom)
                 WindowInsetsCompat.CONSUMED
               }
             }
@@ -90,7 +105,8 @@ class LogViewerActivity : AppCompatActivity() {
                 resources.getColor(R.color.log_info_tag_color),
                 resources.getColor(R.color.log_warning_tag_color),
                 resources.getColor(R.color.log_error_tag_color),
-            )
+            ),
+            viewModel.filter,
         )
     restartLogCollector()
 
@@ -98,7 +114,24 @@ class LogViewerActivity : AppCompatActivity() {
       recyclerView = this
       layoutManager = LinearLayoutManager(context)
       adapter = logAdapter
+      addItemDecoration(
+          MaterialDividerItemDecoration(context, LinearLayoutManager.VERTICAL).apply {
+            isLastItemDecorated = false
+          }
+      )
+      addOnScrollListener(
+          object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+              binding.jumpToLatest.isVisible = recyclerView.canScrollVertically(1)
+            }
+          }
+      )
     }
+    bindLevelChip(binding.logLevelError, LogLevel.ERROR)
+    bindLevelChip(binding.logLevelWarning, LogLevel.WARNING)
+    bindLevelChip(binding.logLevelInfo, LogLevel.INFO)
+    bindLevelChip(binding.logLevelDebug, LogLevel.DEBUG)
+    binding.jumpToLatest.setOnClickListener { scrollToLatest() }
     binding.shareFab.setOnClickListener {
       val key = "${getRandomHexString()}/debug=${viewModel.isDebugEnabled()}/owntracks-debug.txt"
       logExportUri = "content://${BuildConfig.APPLICATION_ID}.log/$key".toUri()
@@ -118,14 +151,27 @@ class LogViewerActivity : AppCompatActivity() {
     }
   }
 
+  private fun bindLevelChip(chip: Chip, level: LogLevel) {
+    chip.isChecked = level in viewModel.filter.levels
+    chip.setOnCheckedChangeListener { _, isChecked ->
+      viewModel.setLevelEnabled(level, isChecked)
+      applyFilter()
+    }
+  }
+
+  private fun applyFilter() {
+    logAdapter.filter = viewModel.filter
+    scrollToLatest()
+    updateNoMatchingLogs()
+  }
+
   private fun restartLogCollector() {
     collectorJob?.cancel("Restarting")
-    logAdapter.clearLogs()
     collectorJob = lifecycleScope.launch {
-      viewModel.logLines().flowWithLifecycle(lifecycle, Lifecycle.State.STARTED).collect {
-        if (viewModel.isDebugEnabled() || it.priority >= Log.INFO) {
-          updateAdapterWithLogLines(it)
-        }
+      repeatOnLifecycle(Lifecycle.State.STARTED) {
+        // The flow replays its whole buffer to each new collector
+        logAdapter.clearLogs()
+        viewModel.logLines().collect { updateAdapterWithLogLines(it) }
       }
     }
   }
@@ -134,7 +180,24 @@ class LogViewerActivity : AppCompatActivity() {
     val atTheBottom = !binding.logsRecyclerView.canScrollVertically(1)
     logAdapter.addLogLine(logEntry)
     if (atTheBottom) {
-      binding.logsRecyclerView.scrollToPosition(logAdapter.itemCount - 1)
+      scrollToLatest()
+    }
+    updateNoMatchingLogs()
+  }
+
+  private fun updateNoMatchingLogs() {
+    binding.noMatchingLogs.isVisible = logAdapter.allEntriesHidden
+  }
+
+  private fun scrollToLatest() {
+    binding.logsRecyclerView.apply {
+      scrollToPosition(logAdapter.itemCount - 1)
+      // scrollToPosition can align the top of a row that's taller than the list
+      doOnPreDraw {
+        findViewHolderForAdapterPosition(logAdapter.itemCount - 1)?.let {
+          scrollBy(0, it.itemView.bottom - (height - paddingBottom))
+        }
+      }
     }
   }
 
@@ -144,17 +207,35 @@ class LogViewerActivity : AppCompatActivity() {
     // themselves stay until they're explicitly cleared, so they're still in anything shared here.
     NotificationManagerCompat.from(this)
         .cancel(BaseApp.NOTIFICATION_TAG_CRASH, BaseApp.NOTIFICATION_ID_CRASH)
-    this.recyclerView?.scrollToPosition(logAdapter.itemCount - 1)
+    scrollToLatest()
   }
 
   override fun onCreateOptionsMenu(menu: Menu): Boolean {
     menuInflater.inflate(R.menu.log_viewer, menu)
     clearButton = menu.findItem(R.id.clear_log)
-    return true
-  }
+    val searchItem = menu.findItem(R.id.search_log)
+    (searchItem.actionView as SearchView).apply {
+      queryHint = getString(R.string.logViewerSearch)
+      val query = viewModel.filter.query
+      if (query.isNotEmpty()) {
+        searchItem.expandActionView()
+        setQuery(query, false)
+      }
+      setOnQueryTextListener(
+          object : SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String): Boolean {
+              clearFocus()
+              return true
+            }
 
-  override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-    menu.findItem(R.id.show_debug_logs).isChecked = viewModel.isDebugEnabled()
+            override fun onQueryTextChange(newText: String): Boolean {
+              viewModel.setQuery(newText)
+              applyFilter()
+              return true
+            }
+          }
+      )
+    }
     return true
   }
 
@@ -165,18 +246,20 @@ class LogViewerActivity : AppCompatActivity() {
         true
       }
       R.id.clear_log -> {
-        // Clearing the log is the user's acknowledgement of any crash reports: until then they're
-        // kept on disk so that they survive the log buffer rolling over, and are attached to every
-        // export.
-        CrashLog.forContext(this).acknowledge()
-        viewModel.clearLog()
-        restartLogCollector()
-        true
-      }
-      R.id.show_debug_logs -> {
-        item.isChecked = !item.isChecked
-        viewModel.enableDebugLogs(item.isChecked)
-        restartLogCollector()
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.logViewerClearTitle)
+            .setMessage(R.string.logViewerClearMessage)
+            .setPositiveButton(R.string.clear_log) { _, _ ->
+              // Clearing the log is the user's acknowledgement of any crash reports: until then
+              // they're kept on disk so that they survive the log buffer rolling over, and are
+              // attached to every export. Now behind upstream's confirmation dialog, so the
+              // acknowledgement happens only if the clear is actually confirmed.
+              CrashLog.forContext(this).acknowledge()
+              viewModel.clearLog()
+              restartLogCollector()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
         true
       }
       else -> super.onOptionsItemSelected(item)

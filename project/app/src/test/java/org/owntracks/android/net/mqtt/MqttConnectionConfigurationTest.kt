@@ -1,5 +1,9 @@
 package org.owntracks.android.net.mqtt
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Assert
 import org.junit.Test
 import org.owntracks.android.preferences.InMemoryPreferencesStore
@@ -72,5 +76,25 @@ class MqttConnectionConfigurationTest {
   fun `MQTT Connection Configuration does not validate config with missing hostname`() {
     val preferences = Preferences(InMemoryPreferencesStore(), mockIdlingResource)
     preferences.toMqttConnectionConfiguration().validate()
+  }
+
+  @Test
+  fun `the CONNECT packet's will is an lwt message with its timestamps`() {
+    val before = System.currentTimeMillis() / 1000
+    // Upstream asserts this on Paho's MqttConnectOptions; this fork builds a HiveMQ Mqtt3Connect.
+    val connect =
+        Preferences(InMemoryPreferencesStore(), mockIdlingResource)
+            .apply { tls = false }
+            .toMqttConnectionConfiguration()
+            .buildConnect()
+
+    val payload = connect.willPublish.get().payloadAsBytes
+    val will = Json.parseToJsonElement(String(payload)).jsonObject
+
+    Assert.assertEquals("lwt", will["_type"]?.jsonPrimitive?.content)
+    val tst = will["tst"]?.jsonPrimitive?.long
+    Assert.assertNotNull("tst in $will", tst)
+    Assert.assertTrue("tst in $will is from this connect", tst!! >= before)
+    Assert.assertEquals(tst, will["created_at"]?.jsonPrimitive?.long)
   }
 }

@@ -22,6 +22,7 @@ This release addresses a security advisory covering several intent-handling vuln
 - Waypoints in an imported config are listed individually in the import review screen
 - Preference setting (Android 16 and later only) to allow user to enable GNSS location source for Significant Monitoring mode (#2155)
 - New opt-in, config-import-only `maxImplausibleSpeedKmh` preference: drops a published location fix if it implies travel faster than the configured maximum ground speed relative to the last published fix, to filter out occasional wildly-inaccurate network-provider locations (#2034)
+- The log viewer is much easier to read: entries wrap instead of scrolling sideways, with the date, time, level and tag above the message, and a stack trace stays together as one entry. Logs can now be filtered by level (replacing the "Debug log" menu item) and searched, a button jumps back to the latest entry after scrolling up, and clearing the log asks for confirmation first
 
 ### Bug fixes
 
@@ -43,10 +44,17 @@ This release addresses a security advisory covering several intent-handling vuln
 - A periodic check now verifies that the MQTT connection is genuinely alive, and reconnects if it isn't. Previously every reconnect was triggered by an event — a connectivity change, a dropped connection, a failed publish — so a connection that had died silently (common when a mobile network drops, since the socket stays readable until something is written to it) was reported as connected indefinitely and never repaired (#2294)
 - The gap between MQTT reconnection attempts is now capped at 10 minutes. It previously doubled without limit up to WorkManager's five-hour maximum, which a run of failures reached in well under a day — after which a broker that had become reachable again might not be noticed for hours. Reconnection is also no longer abandoned outright when the endpoint is not yet configured (#2294)
 - A scheduled MQTT reconnection attempt no longer disconnects an already-healthy connection when a faster path (typically the network becoming available again) restores it first. Previously the scheduled attempt ran regardless, occasionally turning a connection that never needed fixing into a brief real outage if the unnecessary reconnect happened to hit a transient failure of its own (#2294)
+- MQTT connecting could hang forever, leaving messages queued until the app was restarted. Every reconnect added another keepalive alarm that nothing removed, until Android's limit of 500 alarms per app made scheduling one fail in the middle of connecting. There is now only ever one alarm, and waits for the broker's replies to connect and subscribe requests now time out (#2294)
+- The periodic MQTT connection check no longer tears down a healthy connection. Any recent traffic meant no keepalive ping was due, which the check read as a dead connection, so it forced a needless reconnect on nearly every run (#2294)
+- Thread use from repeated MQTT reconnections is much reduced. Each connection's thread pool was never shut down, and a connection attempt that got stuck was never fully cleaned up, which could leave a process holding over a thousand threads (#2294)
+- With MQTT `cleanSession` disabled, messages the broker delivered straight after connecting could be dropped: QoS 0 messages sent while the device was offline were lost, and QoS 1 and 2 messages were left unacknowledged until a later reconnect (#2294)
+- Changing a connection preference no longer cancels the periodic MQTT connection check, or the periodic location ping until the service next restarts (#2294)
 - MQTT client-certificate connections no longer route through a PKCS12 `KeyStore`, working around the `InvalidKeyException` some devices' vendored BouncyCastle threw loading one (#1225) at the source rather than by installing a full replacement crypto provider app-wide. Also shrinks the app: that provider's `-keep` rules alone accounted for over a quarter of the app's classes
 - The status screen no longer shows a stale message or error. An error stuck to its state for good, so a later update to that state could still show the old error, and a new error on the same state didn't refresh the screen at all. Switching connection mode (e.g. MQTT to HTTP) also kept showing the previous mode's last error until the new one reported something
 - Event notifications for a contact's region transition could show the wrong name. Messages arriving together, typically a contact's location followed by their transition, were processed in either order; they're now processed one at a time in the order they arrive
 - Locations and transitions exactly on the equator or the prime meridian (a latitude or longitude of exactly 0) were sent without that coordinate, and location messages at either were silently dropped from the outgoing queue
+- The last line in the log viewer is no longer hidden behind the navigation bar or the share button
+- MQTT LWT messages now really contain `tst` and `created_at`, both set to when the connection was made. The 2.5.1 fix for this never took effect, as it changed a class that the app's will message wasn't built from (#1766)
 
 
 ## Version 2.5.10

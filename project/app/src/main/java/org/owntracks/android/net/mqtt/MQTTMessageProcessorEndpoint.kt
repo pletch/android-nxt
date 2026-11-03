@@ -98,8 +98,24 @@ class MQTTMessageProcessorEndpoint(
           { scope.launch { reconnect() } },
       )
 
+  /**
+   * A replaced endpoint must not schedule reconnects. The reconnect worker acts on whichever
+   * endpoint is current, so a stale schedule could tear down its successor's connection, and would
+   * carry the old back-off over to it.
+   */
+  private fun scheduleReconnectIfActive(expedite: Boolean = false) {
+    if (deactivated) {
+      Timber.v("Not scheduling a reconnect from a deactivated endpoint")
+    } else {
+      scheduler.scheduleMqttReconnect(expedite = expedite)
+    }
+  }
+
   override fun activate() {
-    Timber.v("MQTT activate")
+    Timber.v("MQTT Activate")
+    // A new endpoint starts from the short retry delay, not from however far its predecessor had
+    // backed off.
+    scheduler.resetMqttReconnectBackoff()
     preferences.registerOnPreferenceChangedListener(this)
     networkChangeCallback.reset()
     connectivityManager.registerDefaultNetworkCallback(networkChangeCallback)
@@ -152,7 +168,12 @@ class MQTTMessageProcessorEndpoint(
     }
     scope.launch {
       connectingLock.withLock { disconnect() }
-      scheduler.cancelAllTasks()
+      // Not cancelAllTasks(): this teardown usually finishes after the successor's activate() has
+      // scheduled the watchdog, and the location ping belongs to the service, not this endpoint.
+      // Exiting the app cancels its own work (DrawerProvider). Only leaving MQTT mode makes the
+      // MQTT reconnect and watchdog work pointless. Upstream's fix (b2e325f2); its withPermitLogged
+      // is a Semaphore extension, while this fork's connectingLock is a Mutex.
+      if (preferences.mode != ConnectionMode.MQTT) scheduler.cancelMqttTasks()
     }
   }
 
@@ -222,7 +243,7 @@ class MQTTMessageProcessorEndpoint(
         // drop
         // or failed connect we didn't initiate ourselves (a USER source is our own disconnect()).
         if (context.source != MqttDisconnectSource.USER) {
-          scheduler.scheduleMqttReconnect()
+          scheduleReconnectIfActive()
         }
       }
 
@@ -268,7 +289,7 @@ class MQTTMessageProcessorEndpoint(
           setEndpointState(EndpointState.ERROR.withError(e))
           // No HiveMQ auto-reconnect, so schedule our own retry (deduped as unique work). A failed
           // CONNACK also fires disconnectedListener; both funnel to the same scheduled reconnect.
-          scheduler.scheduleMqttReconnect()
+          scheduleReconnectIfActive()
           Result.failure(e)
         } finally {
           mqttConnectionIdlingResource.setIdleState(true)
@@ -343,7 +364,7 @@ class MQTTMessageProcessorEndpoint(
       // connection" into "the queue prevents one". One nudge per disconnected period is the actual
       // signal; [connectedListenerFor] re-arms it.
       if (reconnectNudgeSent.compareAndSet(false, true)) {
-        scheduler.scheduleMqttReconnect(expedite = true)
+        scheduleReconnectIfActive(expedite = true)
       }
       return Result.failure(NotConnectedException())
     }
@@ -375,7 +396,7 @@ class MQTTMessageProcessorEndpoint(
       // again — and the new client wakes the loop via the connected listener's queue notify.
       if (e is TimeoutException) {
         Timber.w("Publish timed out; forcing reconnect so the retry uses a fresh client")
-        scheduler.scheduleMqttReconnect(expedite = true)
+        scheduleReconnectIfActive(expedite = true)
       }
       Result.failure(OutgoingMessageSendingException(e))
     }
@@ -419,6 +440,14 @@ class MQTTMessageProcessorEndpoint(
   }
 
   override suspend fun reconnect(): Result<Unit> {
+    // This may have been queued behind deactivate()'s teardown. A client connected now would have
+    // nothing to ever disconnect it, and sharing the client ID would kick its successor off the
+    // broker. This fork reaches here more readily than upstream does, because its "network lost"
+    // callback reconnects rather than only disconnecting.
+    if (deactivated) {
+      Timber.v("Not reconnecting a deactivated endpoint")
+      return Result.success(Unit)
+    }
     // Always rebuild from current preferences so any reconnect picks up credential/host changes.
     val config =
         try {

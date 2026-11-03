@@ -119,10 +119,18 @@ constructor(
 
   /** Cancels all WorkManager tasks. Called on app exit */
   fun cancelAllTasks() {
-    Timber.d("Cancelling task tag (all mqtt tasks) $ONETIME_TASK_MQTT_RECONNECT")
+    cancelMqttTasks()
+    workManager.cancelAllWorkByTag(PERIODIC_TASK_SEND_LOCATION_PING)
+  }
+
+  /**
+   * Cancels the MQTT reconnect and connection watchdog tasks, leaving the location ping alone.
+   * Called when the app leaves MQTT mode.
+   */
+  fun cancelMqttTasks() {
+    Timber.d("Cancelling MQTT reconnect and connection watchdog tasks")
     workManager.cancelUniqueWork(ONETIME_TASK_MQTT_RECONNECT)
     workManager.cancelUniqueWork(PERIODIC_TASK_MQTT_CONNECTION_WATCHDOG)
-    workManager.cancelAllWorkByTag(PERIODIC_TASK_SEND_LOCATION_PING)
     resetMqttReconnectBackoff()
   }
 

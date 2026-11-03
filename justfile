@@ -58,11 +58,15 @@ ktfmt-check:
 
 [group('utilities')]
 sync-i18n:
-    ./util/pull-translations.sh
+    ./util/pull-translations.py
 
 [group('utilities')]
 update-all-prs:
      gh pr list --json number|jq -r .[].number|xargs -I{} gh pr update-branch {}
+
+[group('utilities')]
+release tag *args:
+    ./util/release.py "$@"
 
 [group('local infrastructure')]
 local-stack:

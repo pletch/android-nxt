@@ -13,7 +13,8 @@ import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish
 import java.security.KeyStore
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
-import org.json.JSONObject
+import org.owntracks.android.model.Parser
+import org.owntracks.android.model.messages.MessageLwt
 import org.owntracks.android.net.ConnectionConfiguration
 import org.owntracks.android.preferences.DefaultsProvider
 import org.owntracks.android.preferences.Preferences
@@ -89,7 +90,10 @@ data class MqttConnectionConfiguration(
     val will =
         Mqtt3Publish.builder()
             .topic(willTopic)
-            .payload(JSONObject().apply { put("_type", "lwt") }.toString().toByteArray())
+            // Built once per connect, so `tst` is when this connection was made, not when it
+            // dropped: the broker holds the payload and publishes it later. Unencrypted, as ever.
+            // Built from MessageLwt rather than by hand so tst/created_at are actually sent.
+            .payload(Parser(null).toUnencryptedJsonBytes(MessageLwt()))
             .qos(MqttQos.AT_MOST_ONCE)
             .retain(false)
             .build()
